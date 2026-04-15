@@ -99,14 +99,16 @@ function Board:movePiece(oldRow, oldCol, newRow, newCol)
 	end
 	-- sound (only on the real board, not AI simulation copies)
 	if isCapture then
-		if CaptureSound then
-			CaptureSound:stop()
-			CaptureSound:play()
+		if captureSound then
+			moveSound:stop()
+			captureSound:stop()
+			captureSound:play()
 		end
 	else
-		if MoveSound then
-			MoveSound:stop()
-			MoveSound:play()
+		if moveSound then
+			captureSound:stop()
+			moveSound:stop()
+			moveSound:play()
 		end
 	end
 

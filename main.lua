@@ -20,8 +20,8 @@ function love.load()
 	showMenu()
 	love.graphics.setDefaultFilter("nearest", "nearest", 0)
 	-- audios
-	moveSound = love.audio.newSource("assets/sound_board_move_asset.wav")
-	captureSound = love.audio.newSource("assets/sound_board_jump_asset.wav")
+	moveSound = love.audio.newSource("assets/sound_board_move_asset.wav", "static")
+	captureSound = love.audio.newSource("assets/sound_board_jump_asset.wav", "static")
 end
 
 function showMenu()
