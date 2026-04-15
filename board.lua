@@ -97,6 +97,18 @@ function Board:movePiece(oldRow, oldCol, newRow, newCol)
 	if (peca.player == 1 and newRow == ROWS) or (peca.player == 2 and newRow == 1) then
 		peca:promote()
 	end
+	-- sound (only on the real board, not AI simulation copies)
+	if isCapture then
+		if CaptureSound then
+			CaptureSound:stop()
+			CaptureSound:play()
+		end
+	else
+		if MoveSound then
+			MoveSound:stop()
+			MoveSound:play()
+		end
+	end
 
 	return isCapture
 end
@@ -171,6 +183,7 @@ function Board:getAllPossibleCaptures()
 	end
 	return mandatoryPieces
 end
+
 -- Agora passamos 'onlyCaptures' como opcional para evitar recursão infinita
 function Board:getValidMoves(row, col, onlyCaptures)
 	local piece = self:getPiece(row, col)
