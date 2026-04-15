@@ -1,38 +1,72 @@
 Config = require("config")
-require("board")
-require("piece")
+Board = require("board")
+Piece = require("piece")
 UI = require("ui")
+AI = require("ai")
 
 local selectedPiece = nil
 local mandatoryPieces = {}
-local multiCapturePiece = nil -- CORREÇÃO: Nome unificado (antes estava multiCapture)
-local validMoves = {}         -- Certifique-se que esta variável existe no escopo
-local winner = nil            -- numero de ganhador
+local multiCapturePiece = nil
+local validMoves = {}
+local winner = nil
+local gameMode = nil
+local gameState = "MENU" -- "MENU" ou "PLAYING"
+local aiDelay = 0
 
 function love.load()
     love.window.setTitle("CheckersLua")
     love.window.setMode(Config.SCREEN_WIDTH, Config.SCREEN_HEIGHT)
     Piece.loadAssets()
+    showMenu()
+end
 
-
-    -- posicionar os botoes
-    UI.newButton("Reiniciar", 525, 25, 100, 50, function()
-        Board.restart()
-        Board.showBoard()
-        winner = nil
-        selectedPiece = nil
-        validMoves = {}
-        multiCapturePiece = nil
-        Board.currentPlayer = 1  -- player 1 sempre comeca
+function showMenu()
+    gameState = "MENU"
+    UI.clear()
+    local centerX = Config.SCREEN_WIDTH / 2
+    UI.newButton("Humano vs Humano", centerX - 100, 150, 200, 50, function()
+        startPlaying(Config.MODES.PVP)
     end)
-    UI.newButton("Sair", 525, 125, 100, 50, function()
+    UI.newButton("Humano vs Computador", centerX - 100, 225, 200, 50, function()
+        startPlaying(Config.MODES.PVC)
+    end)
+    UI.newButton("Sair", centerX - 100, 300, 200, 50, function()
         love.event.quit()
+    end)
+end
+
+function startPlaying(mode)
+    gameState = "PLAYING"
+    gameMode = mode
+    Board:restart()
+    winner = nil
+    selectedPiece = nil
+    validMoves = {}
+    multiCapturePiece = nil
+    mandatoryPieces = {}
+    aiDelay = 0
+    
+    UI.clear()
+    UI.newButton("Menu", 525, 25, 100, 50, function()
+        showMenu()
+    end)
+    UI.newButton("Reiniciar", 525, 100, 100, 50, function()
+        startPlaying(mode)
     end)
 end
 
 function love.mousepressed(x, y, button)
     -- verificar se o mouse foi clicado em algum botao
     UI.mousepressed(x, y, button)
+
+    if gameState ~= "PLAYING" or winner then
+        return
+    end
+
+    -- No modo PVC, impede o jogador de mover as peças do Computador (Player 2)
+    if gameMode == Config.MODES.PVC and Board.currentPlayer == 2 then
+        return
+    end
 
     if button == 1 then
         local col = math.floor(x / SQUARE_SIZE) + 1
@@ -41,21 +75,21 @@ function love.mousepressed(x, y, button)
             return
         end
 
-        local peca = Board.getPiece(row, col)
+        local peca = Board:getPiece(row, col)
 
         if not selectedPiece then
             -- Se estamos em multicapture, o jogador SÓ pode selecionar a peça que já moveu
             if multiCapturePiece then
                 if row == multiCapturePiece.row and col == multiCapturePiece.col then
                     selectedPiece = { row = row, col = col }
-                    validMoves = Board.getValidMoves(row, col, true) -- Força apenas capturas
+                    validMoves = Board:getValidMoves(row, col, true) -- Força apenas capturas
                 else
                     print("Você deve continuar a captura com a mesma peça!")
                     return
                 end
             else
                 -- Lógica normal de seleção
-                mandatoryPieces = Board.getAllPossibleCaptures()
+                mandatoryPieces = Board:getAllPossibleCaptures()
 
                 if peca ~= 0 and peca.player == Board.currentPlayer then
                     if #mandatoryPieces > 0 then
@@ -71,7 +105,7 @@ function love.mousepressed(x, y, button)
                         end
                     end
                     selectedPiece = { row = row, col = col }
-                    validMoves = Board.getValidMoves(row, col, #mandatoryPieces > 0)
+                    validMoves = Board:getValidMoves(row, col, #mandatoryPieces > 0)
                 end
             end
         else
@@ -85,12 +119,12 @@ function love.mousepressed(x, y, button)
             end
 
             if moveFinal then
-                local captures = Board.movePiece(selectedPiece.row, selectedPiece.col, row, col)
+                local captures = Board:movePiece(selectedPiece.row, selectedPiece.col, row, col)
 
                 -- Checar se pode continuar capturando
                 local canStillCapture = false
                 if captures then
-                    local nextMoves = Board.getValidMoves(row, col, true)
+                    local nextMoves = Board:getValidMoves(row, col, true)
                     for _, m in ipairs(nextMoves) do
                         if m.isCapture then
                             canStillCapture = true
@@ -111,9 +145,9 @@ function love.mousepressed(x, y, button)
                     selectedPiece = nil
                     validMoves = {}
                     mandatoryPieces = {}
-                    Board.changeTurn()
+                    Board:changeTurn()
 
-                    winner = Board.checkWinner()
+                    winner = Board:checkWinner()
                 end
             else
                 -- Se não clicou num movimento válido e não está em multicapture, permite trocar a peça
@@ -129,78 +163,103 @@ end
 
 function love.update(dt)
     UI.update(dt)
+
+    if gameState == "PLAYING" and not winner then
+        -- Lógica da IA
+        if gameMode == Config.MODES.PVC and Board.currentPlayer == 2 then
+            aiDelay = aiDelay + dt
+            if aiDelay > 1.0 then -- Atraso de 1 segundo para a IA mover
+                local bestMove = AI.getBestMove(Board, 3)
+                if bestMove then
+                    local captures = Board:movePiece(bestMove.startRow, bestMove.startCol, bestMove.endRow, bestMove.endCol)
+                    
+                    -- Se capturou, checar se pode continuar capturando (multicapture)
+                    local canStillCapture = false
+                    if captures then
+                        local nextMoves = Board:getValidMoves(bestMove.endRow, bestMove.endCol, true)
+                        for _, m in ipairs(nextMoves) do
+                            if m.isCapture then
+                                canStillCapture = true
+                                break
+                            end
+                        end
+                    end
+
+                    if not canStillCapture then
+                        Board:changeTurn()
+                        winner = Board:checkWinner()
+                    end
+                else
+                    -- IA não tem movimentos, ela perdeu
+                    winner = 1
+                end
+                aiDelay = 0
+            end
+        end
+    end
 end
 
 function love.draw()
-    Board.drawSquares()
-    Board.drawPieces()
-
-    -- Desenha destaque da seleção
-    if selectedPiece then
-        love.graphics.setLineWidth(3)
-        love.graphics.setColor(1, 1, 0)
-        love.graphics.circle(
-            "line",
-            (selectedPiece.col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
-            (selectedPiece.row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
-            SQUARE_SIZE * 0.45
-        )
-
-        -- CORREÇÃO/ADICIONAL: Desenha os círculos de movimentos possíveis
-        for _, m in ipairs(validMoves) do
-            if m.isCapture then
-                love.graphics.setColor(1, 0, 0, 0.6) -- Vermelho para captura
-            else
-                love.graphics.setColor(0, 1, 0, 0.6) -- Verde para normal
-            end
-            love.graphics.circle(
-                "fill",
-                (m.col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
-                (m.row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
-                SQUARE_SIZE * 0.2
-            )
-        end
-    end
-
-    -- Desenha as peças que SÃO OBRIGADAS a soprar (comer)
-    if #mandatoryPieces > 0 then
-        love.graphics.setLineWidth(2)
-        love.graphics.setColor(1, 0, 0, 0.5)
-        for _, p in ipairs(mandatoryPieces) do
-            love.graphics.circle(
-                "line",
-                (p.col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
-                (p.row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
-                SQUARE_SIZE * 0.5
-            )
-        end
-    end
-
-    -- Tela de Fim de Jogo
-    if winner then
-        -- Fundo semi-transparente
-        love.graphics.setColor(0, 0, 0, 0.75)
-        love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
-
-        -- Texto de Vitória
+    if gameState == "MENU" then
+        love.graphics.clear(0.1, 0.1, 0.1)
         love.graphics.setColor(1, 1, 1)
         local font = love.graphics.getFont()
-        local texto = "Jogador " .. winner .. " Venceu!"
-        local texto2 = "Pressione 'Reiniciar'"
+        local title = "DAMAS LUA"
+        love.graphics.print(title, Config.SCREEN_WIDTH / 2 - font:getWidth(title) / 2, 80)
+    else
+        Board:drawSquares()
+        Board:drawPieces()
 
-        -- Centraliza o texto na tela
-        love.graphics.print(
-            texto,
-            love.graphics.getWidth() / 2 - font:getWidth(texto) / 2,
-            love.graphics.getHeight() / 2 - 20
-        )
-        love.graphics.print(
-            texto2,
-            love.graphics.getWidth() / 2 - font:getWidth(texto2) / 2,
-            love.graphics.getHeight() / 2 + 20
-        )
+        -- Desenha destaque da seleção
+        if selectedPiece then
+            love.graphics.setLineWidth(3)
+            love.graphics.setColor(1, 1, 0)
+            love.graphics.circle(
+                "line",
+                (selectedPiece.col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
+                (selectedPiece.row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
+                SQUARE_SIZE * 0.45
+            )
+
+            for _, m in ipairs(validMoves) do
+                if m.isCapture then
+                    love.graphics.setColor(1, 0, 0, 0.6)
+                else
+                    love.graphics.setColor(0, 1, 0, 0.6)
+                end
+                love.graphics.circle(
+                    "fill",
+                    (m.col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
+                    (m.row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
+                    SQUARE_SIZE * 0.2
+                )
+            end
+        end
+
+        -- Peças com captura obrigatória
+        if #mandatoryPieces > 0 then
+            love.graphics.setLineWidth(2)
+            love.graphics.setColor(1, 0, 0, 0.5)
+            for _, p in ipairs(mandatoryPieces) do
+                love.graphics.circle(
+                    "line",
+                    (p.col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
+                    (p.row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
+                    SQUARE_SIZE * 0.5
+                )
+            end
+        end
+
+        -- Vitória
+        if winner then
+            love.graphics.setColor(0, 0, 0, 0.75)
+            love.graphics.rectangle("fill", 0, 0, Config.SCREEN_WIDTH, Config.SCREEN_HEIGHT)
+            love.graphics.setColor(1, 1, 1)
+            local font = love.graphics.getFont()
+            local texto = "Jogador " .. winner .. " Venceu!"
+            love.graphics.print(texto, Config.SCREEN_WIDTH / 2 - font:getWidth(texto) / 2, Config.SCREEN_HEIGHT / 2 - 20)
+        end
     end
 
-    -- desenhar botoes
     UI.draw()
 end

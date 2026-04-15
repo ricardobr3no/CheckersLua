@@ -29,7 +29,28 @@ end
 
 Board = { board = createBoard(), currentPlayer = 1 }
 
-Board.drawSquares = function()
+function Board:copy()
+    local newBoard = {
+        board = {},
+        currentPlayer = self.currentPlayer
+    }
+    for r = 1, ROWS do
+        newBoard.board[r] = {}
+        for c = 1, COLS do
+            local p = self.board[r][c]
+            if p == 0 then
+                newBoard.board[r][c] = 0
+            else
+                newBoard.board[r][c] = p:copy()
+            end
+        end
+    end
+    -- Link functions if necessary (since they are assigned to Board table)
+    setmetatable(newBoard, { __index = Board })
+    return newBoard
+end
+
+function Board:drawSquares()
 	for row = 1, ROWS do
 		for col = 1, COLS do
 			-- Lógica de cores do tabuleiro
@@ -45,31 +66,31 @@ Board.drawSquares = function()
 	end
 end
 
-Board.canCapture = function(oldRow, oldCol, newRow, newCol)
+function Board:canCapture(oldRow, oldCol, newRow, newCol)
 	if math.abs(newRow - oldRow) == 2 and math.abs(newCol - oldCol) == 2 then
 		local midRow = (newRow + oldRow) / 2
 		local midCol = (newCol + oldCol) / 2
-		local pecaMid = Board.getPiece(midRow, midCol)
-		local pecaDest = Board.getPiece(newRow, newCol)
+		local pecaMid = self:getPiece(midRow, midCol)
+		local pecaDest = self:getPiece(newRow, newCol)
 
 		-- CORREÇÃO: Acessar .player pois pecaMid é um objeto
-		if pecaMid ~= 0 and pecaMid.player ~= Board.currentPlayer and pecaDest == 0 then
+		if pecaMid ~= 0 and pecaMid.player ~= self.currentPlayer and pecaDest == 0 then
 			return true, midRow, midCol
 		end
 	end
 	return false
 end
 
-Board.movePiece = function(oldRow, oldCol, newRow, newCol)
-	local peca = Board.getPiece(oldRow, oldCol)
-	local isCapture, midRow, midCol = Board.canCapture(oldRow, oldCol, newRow, newCol)
+function Board:movePiece(oldRow, oldCol, newRow, newCol)
+	local peca = self:getPiece(oldRow, oldCol)
+	local isCapture, midRow, midCol = self:canCapture(oldRow, oldCol, newRow, newCol)
 
-	Board.board[oldRow][oldCol] = 0
-	Board.board[newRow][newCol] = peca
+	self.board[oldRow][oldCol] = 0
+	self.board[newRow][newCol] = peca
 	peca.row, peca.col = newRow, newCol -- Atualiza posição interna da peça
 
 	if isCapture and midRow and midCol then
-		Board.board[midRow][midCol] = 0
+		self.board[midRow][midCol] = 0
 	end
 
 	-- LÓGICA DE PROMOÇÃO:
@@ -81,15 +102,16 @@ Board.movePiece = function(oldRow, oldCol, newRow, newCol)
 end
 
 -- CORREÇÃO: Proteção para não dar erro de 'index nil'
-Board.getPiece = function(row, col)
-	if Board.board[row] then
-		return Board.board[row][col]
+function Board:getPiece(row, col)
+	if self.board[row] then
+		return self.board[row][col]
 	end
 	return 0
 end
 
-Board.restart = function()
-	Board.board = createBoard()
+function Board:restart()
+	self.board = createBoard()
+	self.currentPlayer = 1
 end
 
 Board.showBoard = function()
@@ -103,39 +125,36 @@ Board.showBoard = function()
 	end
 end
 
-Board.drawPieces = function()
+function Board:drawPieces()
 	for row = 1, ROWS do
 		for col = 1, COLS do
-			local piece = Board.getPiece(row, col)
+			local piece = self:getPiece(row, col)
 			if piece ~= 0 then
-				-- Calcula onde é o meio do quadrado
 				local centerX = (col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2
 				local centerY = (row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2
-
-				-- Manda a peça desenhar-se a si mesma!
 				piece:draw(centerX, centerY, SQUARE_SIZE)
 			end
 		end
 	end
 end
 
-Board.changeTurn = function()
-	if Board.currentPlayer == 1 then
-		Board.currentPlayer = 2
+function Board:changeTurn()
+	if self.currentPlayer == 1 then
+		self.currentPlayer = 2
 	else
-		Board.currentPlayer = 1
+		self.currentPlayer = 1
 	end
-	print("Vez do jogador " .. Board.currentPlayer)
+	print("Vez do jogador " .. self.currentPlayer)
 end
 
-Board.getAllPossibleCaptures = function()
+function Board:getAllPossibleCaptures()
 	local mandatoryPieces = {}
 
 	for r = 1, ROWS do
 		for c = 1, COLS do
-			local piece = Board.getPiece(r, c)
-			if piece ~= 0 and piece.player == Board.currentPlayer then
-				local moves = Board.getValidMoves(r, c, true)
+			local piece = self:getPiece(r, c)
+			if piece ~= 0 and piece.player == self.currentPlayer then
+				local moves = self:getValidMoves(r, c, true)
 				local hasCapture = false
 				for _, m in ipairs(moves) do
 					if m.isCapture then
@@ -153,8 +172,8 @@ Board.getAllPossibleCaptures = function()
 	return mandatoryPieces
 end
 -- Agora passamos 'onlyCaptures' como opcional para evitar recursão infinita
-Board.getValidMoves = function(row, col, onlyCaptures)
-	local piece = Board.getPiece(row, col)
+function Board:getValidMoves(row, col, onlyCaptures)
+	local piece = self:getPiece(row, col)
 	if piece == 0 then
 		return {}
 	end
@@ -168,7 +187,7 @@ Board.getValidMoves = function(row, col, onlyCaptures)
 	for _, dir in ipairs(dirs) do
 		local r2, c2 = row + (dir[1] * 2), col + (dir[2] * 2)
 		if r2 >= 1 and r2 <= ROWS and c2 >= 1 and c2 <= COLS then
-			local isCap, _, _ = Board.canCapture(row, col, r2, c2)
+			local isCap, _, _ = self:canCapture(row, col, r2, c2)
 			if isCap then
 				table.insert(captureMoves, { row = r2, col = c2, isCapture = true })
 			end
@@ -186,7 +205,7 @@ Board.getValidMoves = function(row, col, onlyCaptures)
 	for _, dir in ipairs(dirs) do
 		local r1, c1 = row + dir[1], col + dir[2]
 		if r1 >= 1 and r1 <= ROWS and c1 >= 1 and c1 <= COLS then
-			if Board.getPiece(r1, c1) == 0 then
+			if self:getPiece(r1, c1) == 0 then
 				table.insert(normalMoves, { row = r1, col = c1, isCapture = false })
 			end
 		end
@@ -195,18 +214,18 @@ Board.getValidMoves = function(row, col, onlyCaptures)
 	return normalMoves
 end
 
-function Board.checkWinner()
+function Board:checkWinner()
 	local countCurrentPlayerPieces = 0
 	local currentPlayerHasMoves = false
 
 	for row = 1, ROWS do
 		for col = 1, COLS do
-			local piece = Board.getPiece(row, col)
+			local piece = self:getPiece(row, col)
 			-- verificar as pecas do jogador atual
-			if piece ~= 0 and piece.player == Board.currentPlayer then
+			if piece ~= 0 and piece.player == self.currentPlayer then
 				countCurrentPlayerPieces = countCurrentPlayerPieces + 1
 				-- se ele tiver ao menos UM movimento valido ainda esta no jogo
-				local validMoves = Board.getValidMoves(row, col, false)
+				local validMoves = self:getValidMoves(row, col, false)
 				if #validMoves > 0 then
 					currentPlayerHasMoves = true
 				end
@@ -217,7 +236,7 @@ function Board.checkWinner()
 	-- se o jogador atual nao tem pecas ou movimentos, o OUTRO jogador vence
 	if countCurrentPlayerPieces == 0 or not currentPlayerHasMoves then
 		-- returna numero do ganhador
-		return Board.currentPlayer == 1 and 2 or 1
+		return self.currentPlayer == 1 and 2 or 1
 	end
 
 	return nil -- continua o jogo

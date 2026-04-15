@@ -23,6 +23,12 @@ function Piece.new(player, row, col)
     return self
 end
 
+function Piece:copy()
+    local copy = Piece.new(self.player, self.row, self.col)
+    copy.isKing = self.isKing
+    return copy
+end
+
 function Piece:getDirections()
     local h = { 1, -1 }
     local v = { self.player == 1 and 1 or -1 }
