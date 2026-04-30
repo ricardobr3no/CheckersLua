@@ -25,15 +25,16 @@ end
 function AI.getBestMove(boardInstance, depth)
     local bestScore = -math.huge
     local bestMove = nil
-    
+
     local allMoves = {}
     local mandatory = boardInstance:getAllPossibleCaptures()
-    
+
     if #mandatory > 0 then
         for _, pPos in ipairs(mandatory) do
             local moves = boardInstance:getValidMoves(pPos.row, pPos.col, true)
             for _, m in ipairs(moves) do
-                table.insert(allMoves, {startRow = pPos.row, startCol = pPos.col, endRow = m.row, endCol = m.col, isCapture = true})
+                table.insert(allMoves,
+                    { startRow = pPos.row, startCol = pPos.col, endRow = m.row, endCol = m.col, isCapture = true })
             end
         end
     else
@@ -43,7 +44,8 @@ function AI.getBestMove(boardInstance, depth)
                 if p ~= 0 and p.player == boardInstance.currentPlayer then
                     local moves = boardInstance:getValidMoves(r, c, false)
                     for _, m in ipairs(moves) do
-                        table.insert(allMoves, {startRow = r, startCol = c, endRow = m.row, endCol = m.col, isCapture = m.isCapture})
+                        table.insert(allMoves,
+                            { startRow = r, startCol = c, endRow = m.row, endCol = m.col, isCapture = m.isCapture })
                     end
                 end
             end
@@ -54,14 +56,14 @@ function AI.getBestMove(boardInstance, depth)
         local tempBoard = boardInstance:copy()
         tempBoard:movePiece(move.startRow, move.startCol, move.endRow, move.endCol)
         tempBoard:changeTurn()
-        
+
         local score = AI.minimax(tempBoard, depth - 1, -math.huge, math.huge, false)
         if score > bestScore then
             bestScore = score
             bestMove = move
         end
     end
-    
+
     return bestMove
 end
 
@@ -73,12 +75,12 @@ function AI.minimax(boardInstance, depth, alpha, beta, isMaximizing)
 
     local allMoves = {}
     local mandatory = boardInstance:getAllPossibleCaptures()
-    
+
     if #mandatory > 0 then
         for _, pPos in ipairs(mandatory) do
             local moves = boardInstance:getValidMoves(pPos.row, pPos.col, true)
             for _, m in ipairs(moves) do
-                table.insert(allMoves, {startRow = pPos.row, startCol = pPos.col, endRow = m.row, endCol = m.col})
+                table.insert(allMoves, { startRow = pPos.row, startCol = pPos.col, endRow = m.row, endCol = m.col })
             end
         end
     else
@@ -88,7 +90,7 @@ function AI.minimax(boardInstance, depth, alpha, beta, isMaximizing)
                 if p ~= 0 and p.player == boardInstance.currentPlayer then
                     local moves = boardInstance:getValidMoves(r, c, false)
                     for _, m in ipairs(moves) do
-                        table.insert(allMoves, {startRow = r, startCol = c, endRow = m.row, endCol = m.col})
+                        table.insert(allMoves, { startRow = r, startCol = c, endRow = m.row, endCol = m.col })
                     end
                 end
             end

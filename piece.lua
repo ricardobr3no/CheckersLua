@@ -53,6 +53,10 @@ end
 
 -- NOVO: A própria peça sabe como desenhar-se
 function Piece:draw(centerX, centerY, squareSize)
+    -- circulo externo
+    love.graphics.setColor(0.7, 0.7, 0.3) -- cinza
+    love.graphics.circle("fill", centerX, centerY, squareSize * 0.45)
+
     -- Cor do corpo da peça
     if self.player == 1 then
         love.graphics.setColor(1, 0, 0) -- Vermelho
