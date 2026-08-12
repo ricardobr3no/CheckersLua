@@ -1,6 +1,9 @@
 return {
-    SCREEN_HEIGHT = 500,
+    SCREEN_HEIGHT = 560,
     SCREEN_WIDTH = 650,
     BOARD_SIZE = 500,
+    BOARD_OFFSET_X = 20,
+    BOARD_OFFSET_Y = 20,
+    BOARD_FRAME = 18,
     MODES = { PVP = 1, PVC = 2 }
 }
