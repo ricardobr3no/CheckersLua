@@ -1,6 +1,6 @@
 return {
     SCREEN_HEIGHT = 560,
-    SCREEN_WIDTH = 650,
+    SCREEN_WIDTH = 680,
     BOARD_SIZE = 500,
     BOARD_OFFSET_X = 20,
     BOARD_OFFSET_Y = 20,

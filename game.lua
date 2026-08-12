@@ -3,6 +3,7 @@ local Board             = require("board")
 local Piece             = require("piece")
 local UI                = require("ui")
 local AI                = require("ai")
+local View              = require("view")
 
 local Game              = {}
 
@@ -32,6 +33,8 @@ function Game.load()
     love.window.setMode(Config.SCREEN_WIDTH, Config.SCREEN_HEIGHT)
     love.graphics.setDefaultFilter("nearest", "nearest", 0)
 
+    View.init(Config.SCREEN_WIDTH, Config.SCREEN_HEIGHT)
+
     fontTitle  = love.graphics.newFont(42)
     fontBig    = love.graphics.newFont(26)
     fontMedium = love.graphics.newFont(18)
@@ -42,6 +45,16 @@ function Game.load()
     MoveSound    = love.audio.newSource("assets/sound_board_move_asset.wav", "static")
     CaptureSound = love.audio.newSource("assets/sound_board_jump_asset.wav", "static")
     Game.showMenu()
+end
+
+function Game.resize(w, h)
+    View.resize(w, h)
+end
+
+function Game.keypressed(key)
+    if key == "f11" then
+        love.window.setFullscreen(not love.window.getFullscreen())
+    end
 end
 
 -- ─── Transições de estado ─────────────────────────────────────────────────────
@@ -147,6 +160,7 @@ local function handleMove(x, y, button, row, col, moveFinal)
 end
 
 function Game.mousepressed(x, y, button)
+    x, y = View.toVirtual(x, y)
     UI.mousepressed(x, y, button)
 
     if gameState ~= "PLAYING" or winner then return end
@@ -428,7 +442,7 @@ local function drawPlaying()
     -- hover só quando o jogador pode interagir
     local hoverRow, hoverCol = nil, nil
     if not winner and not (gameMode == Config.MODES.PVC and Board.currentPlayer == 2) then
-        local mx, my = love.mouse.getPosition()
+        local mx, my = View.toVirtual(love.mouse.getPosition())
         local hc = math.floor((mx - OX) / SQUARE_SIZE) + 1
         local hr = math.floor((my - OY) / SQUARE_SIZE) + 1
         if hr >= 1 and hr <= ROWS and hc >= 1 and hc <= COLS then
@@ -452,6 +466,8 @@ local function drawPlaying()
 end
 
 function Game.draw()
+    love.graphics.clear(0.02, 0.02, 0.04)
+    View.apply()
     if gameState == "MENU" then
         drawMenu()
     elseif gameState == "CREDITS" then
@@ -460,6 +476,7 @@ function Game.draw()
         drawPlaying()
     end
     UI.draw()
+    View.release()
 end
 
 return Game

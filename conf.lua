@@ -2,7 +2,9 @@ function love.conf(t)
     t.window.title = "CheckersLua"
     t.window.width = 650
     t.window.height = 560
-    t.window.resizable = false
+    t.window.resizable = true
+    t.window.minwidth = 400
+    t.window.minheight = 360
     t.window.vsync = 1
     t.window.highdpi = true
     t.version = "11.4"

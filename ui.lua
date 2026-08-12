@@ -23,7 +23,8 @@ function UI.clear()
 end
 
 function UI.update(dt)
-    local mx, my = love.mouse.getPosition()
+    local View = require("view")
+    local mx, my = View.toVirtual(love.mouse.getPosition())
     for _, button in ipairs(UI.buttons) do
         button.isHovered = mx > button.x and mx < button.x + button.width and my > button.y and
         my < button.y + button.height
