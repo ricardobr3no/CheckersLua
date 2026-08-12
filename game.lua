@@ -4,6 +4,7 @@ local Piece             = require("piece")
 local UI                = require("ui")
 local AI                = require("ai")
 local View              = require("view")
+local Settings          = require("settings")
 
 local Game              = {}
 
@@ -19,6 +20,9 @@ local validMoves        = {}
 local mandatoryPieces   = {}
 local multiCapturePiece = nil
 
+local settingsOpen      = false
+local settingsSlider    = nil
+
 local fontTitle  = nil
 local fontBig    = nil
 local fontMedium = nil
@@ -26,6 +30,20 @@ local fontSmall  = nil
 
 local OX = Config.BOARD_OFFSET_X
 local OY = Config.BOARD_OFFSET_Y
+
+-- ─── Layout do painel de configurações ────────────────────────────────────────
+local PANEL_X, PANEL_Y, PANEL_W, PANEL_H = 70, 60, 510, 460
+local TRACK_X0, TRACK_X1 = 320, 515
+local TOGGLE_BOX_X, TOGGLE_BOX_W = 470, 40
+local SLIDER_DEFS = {
+    { key = "musicVolume", label = "Música de fundo", y = 180 },
+    { key = "sfxVolume",   label = "Efeitos sonoros",  y = 245 },
+}
+local TOGGLE_DEFS = {
+    { key = "shake", label = "Tremor de tela", y = 330 },
+    { key = "hints", label = "Mostrar dicas",   y = 385 },
+}
+local CLOSE_RECT = { x = 255, y = 435, w = 140, h = 46 }
 
 -- ─── Setup ────────────────────────────────────────────────────────────────────
 function Game.load()
@@ -44,7 +62,36 @@ function Game.load()
     Piece.loadAssets()
     MoveSound    = love.audio.newSource("assets/sound_board_move_asset.wav", "static")
     CaptureSound = love.audio.newSource("assets/sound_board_jump_asset.wav", "static")
+
+    -- música de fundo (opcional: coloque assets/music.ogg|wav|mp3)
+    Music = nil
+    for _, file in ipairs({ "assets/music.ogg", "assets/music.wav", "assets/music.mp3" }) do
+        if love.filesystem.getInfo(file) then
+            local ok, src = pcall(love.audio.newSource, file, "stream")
+            if ok then
+                Music = src
+                Music:setLooping(true)
+                break
+            end
+        end
+    end
+
+    Settings.load()
+    Game.applySettings()
     Game.showMenu()
+end
+
+function Game.applySettings()
+    local sfx = Settings.get("sfxVolume")
+    MoveSound:setVolume(sfx)
+    CaptureSound:setVolume(sfx)
+    if Music then
+        Music:setVolume(Settings.get("musicVolume"))
+        if not Music:isPlaying() then
+            Music:play()
+        end
+    end
+    ShakeEnabled = Settings.get("shake")
 end
 
 function Game.resize(w, h)
@@ -62,10 +109,60 @@ function Game.showMenu()
     gameState = "MENU"
     UI.clear()
     local cx = Config.SCREEN_WIDTH / 2
-    UI.newButton("Humano vs Humano", cx - 110, 170, 220, 54, function() Game.startPlaying(Config.MODES.PVP) end)
-    UI.newButton("Humano vs Computador", cx - 110, 240, 220, 54, function() Game.startPlaying(Config.MODES.PVC) end)
-    UI.newButton("Créditos", cx - 110, 310, 220, 54, function() Game.showCredits() end)
-    UI.newButton("Sair", cx - 110, 380, 220, 54, function() love.event.quit() end)
+    UI.newButton("Humano vs Humano", cx - 125, 168, 250, 54, function() Game.startPlaying(Config.MODES.PVP) end)
+    UI.newButton("Humano vs Computador", cx - 125, 236, 250, 54, function() Game.startPlaying(Config.MODES.PVC) end)
+    UI.newButton("Créditos", cx - 125, 304, 250, 54, function() Game.showCredits() end)
+    UI.newButton("Sair", cx - 125, 372, 250, 54, function() love.event.quit() end)
+    UI.newButton("Configurações", cx - 125, 440, 250, 54, function() Game.openSettings() end)
+end
+
+function Game.openSettings()
+    settingsOpen = true
+    settingsSlider = nil
+end
+
+local function closeSettings()
+    settingsOpen = false
+    settingsSlider = nil
+end
+
+local function insideRect(x, y, rect)
+    return x >= rect.x and x <= rect.x + rect.w and y >= rect.y and y <= rect.y + rect.h
+end
+
+local function updateSlider(key, mx)
+    local val = (mx - TRACK_X0) / (TRACK_X1 - TRACK_X0)
+    val = math.max(0, math.min(1, val))
+    Settings.set(key, val)
+    Game.applySettings()
+end
+
+local function settingsClick(x, y)
+    if insideRect(x, y, CLOSE_RECT) then
+        closeSettings()
+        return
+    end
+
+    for _, t in ipairs(TOGGLE_DEFS) do
+        local rect = { x = TOGGLE_BOX_X, y = t.y - 14, w = TOGGLE_BOX_W, h = 24 }
+        if insideRect(x, y, rect) then
+            Settings.set(t.key, not Settings.get(t.key))
+            Game.applySettings()
+            return
+        end
+    end
+
+    for _, s in ipairs(SLIDER_DEFS) do
+        if math.abs(y - s.y) < 16 and x >= TRACK_X0 - 6 and x <= TRACK_X1 + 6 then
+            updateSlider(s.key, x)
+            settingsSlider = s.key
+            return
+        end
+    end
+
+    if not insideRect(x, y, { x = PANEL_X, y = PANEL_Y, w = PANEL_W, h = PANEL_H }) then
+        closeSettings()
+    end
 end
 
 function Game.showCredits()
@@ -88,8 +185,9 @@ function Game.startPlaying(mode)
     Board:restart()
 
     UI.clear()
-    UI.newButton("Menu", 548, 18, 92, 40, function() Game.showMenu() end)
-    UI.newButton("Reiniciar", 548, 70, 92, 40, function() Game.startPlaying(mode) end)
+    UI.newButton("Menu", 548, 18, 100, 40, function() Game.showMenu() end)
+    UI.newButton("Reiniciar", 548, 70, 100, 40, function() Game.startPlaying(mode) end)
+    UI.newButton("Config", 548, 122, 100, 40, function() Game.openSettings() end)
 end
 
 -- ─── Input ────────────────────────────────────────────────────────────────────
@@ -161,6 +259,12 @@ end
 
 function Game.mousepressed(x, y, button)
     x, y = View.toVirtual(x, y)
+
+    if settingsOpen then
+        settingsClick(x, y)
+        return
+    end
+
     UI.mousepressed(x, y, button)
 
     if gameState ~= "PLAYING" or winner then return end
@@ -207,6 +311,16 @@ end
 function Game.update(dt)
     UI.update(dt)
     Board:update(dt)
+
+    if settingsOpen then
+        if settingsSlider and love.mouse.isDown(1) then
+            local mx = View.toVirtual(love.mouse.getPosition())
+            updateSlider(settingsSlider, mx)
+        elseif settingsSlider then
+            settingsSlider = nil
+        end
+    end
+
     aiThinking = gameState == "PLAYING" and not winner
         and gameMode == Config.MODES.PVC and Board.currentPlayer == 2
 
@@ -309,6 +423,8 @@ local function drawTurnHud()
     love.graphics.setColor(0.4, 0.37, 0.44)
     love.graphics.rectangle("line", 543, 1, Config.SCREEN_WIDTH - 545, Config.SCREEN_HEIGHT - 2)
 
+    local PANEL_RIGHT = Config.SCREEN_WIDTH - 6
+
     -- contagem de peças
     local c1, c2 = 0, 0
     for r = 1, ROWS do
@@ -321,6 +437,15 @@ local function drawTurnHud()
     end
 
     local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 5)
+    love.graphics.setFont(fontSmall)
+
+    -- texto alinhado à direita do painel (nunca estoura a tela)
+    local function rightText(y, txt, r, g, b, a)
+        love.graphics.setColor(r, g, b, a or 1)
+        local w = fontSmall:getWidth(txt)
+        love.graphics.print(txt, PANEL_RIGHT - w, y)
+        return PANEL_RIGHT - w
+    end
 
     -- indicador de turno
     local turnText = "Vez de"
@@ -329,39 +454,33 @@ local function drawTurnHud()
         or ("Jogador " .. Board.currentPlayer)
     local turnColor = Board.currentPlayer == 1 and { 0.9, 0.25, 0.18 } or { 0.95, 0.93, 0.88 }
 
-    love.graphics.setFont(fontSmall)
-    love.graphics.setColor(0.7, 0.7, 0.75)
-    love.graphics.print(turnText, 556, 138)
-
+    rightText(186, turnText, 0.7, 0.7, 0.75)
+    local nameX = rightText(204, turnName, 1, 1, 1)
     love.graphics.setColor(turnColor[1], turnColor[2], turnColor[3], pulse)
-    love.graphics.circle("fill", 562, 162, 7)
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.print(turnName, 576, 154)
+    love.graphics.circle("fill", nameX - 12, 212, 7)
 
     if aiThinking then
         local txt = "IA pensando..."
         local w = fontSmall:getWidth(txt)
+        local centerX = 542 + (Config.SCREEN_WIDTH - 542) / 2
         love.graphics.setColor(1, 1, 1, 0.4 + 0.6 * pulse)
-        love.graphics.print(txt, 650 - w / 2 - 12, 200)
+        love.graphics.print(txt, centerX - w / 2, 252)
     end
 
     -- contadores
-    love.graphics.setFont(fontSmall)
-    local p1y = 250
-    local p2y = 290
+    local p1y = 302
+    local p2y = 342
     love.graphics.setColor(0.9, 0.25, 0.18, 0.9)
-    love.graphics.circle("fill", 562, p1y + 5, 8)
+    love.graphics.circle("fill", 550, p1y + 5, 8)
     love.graphics.setColor(0.2, 0.2, 0.2, 0.9)
-    love.graphics.circle("fill", 562, p1y + 5, 8, 4, 4)
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.print("Vermelho: " .. c1, 580, p1y)
+    love.graphics.circle("fill", 550, p1y + 5, 8, 4, 4)
+    rightText(p1y, "Vermelho: " .. c1, 1, 1, 1)
 
     love.graphics.setColor(0.95, 0.93, 0.88, 0.9)
-    love.graphics.circle("fill", 562, p2y + 5, 8)
+    love.graphics.circle("fill", 550, p2y + 5, 8)
     love.graphics.setColor(0.25, 0.25, 0.25, 0.9)
-    love.graphics.circle("fill", 562, p2y + 5, 8, 4, 4)
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.print("Branco: " .. c2, 580, p2y)
+    love.graphics.circle("fill", 550, p2y + 5, 8, 4, 4)
+    rightText(p2y, "Branco: " .. c2, 1, 1, 1)
 
     love.graphics.setFont(fontMedium)
 end
@@ -377,6 +496,7 @@ local function drawSelection()
     love.graphics.circle("line", sx, sy, SQUARE_SIZE * 0.5 + pulse * 2)
 
     for _, m in ipairs(validMoves) do
+        if not Settings.get("hints") then break end
         local mx, my = screenPos(m.col, m.row)
         if m.isCapture then
             love.graphics.setLineWidth(3)
@@ -392,7 +512,7 @@ local function drawSelection()
 end
 
 local function drawMandatory()
-    if #mandatoryPieces == 0 then return end
+    if #mandatoryPieces == 0 or not Settings.get("hints") then return end
     local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 6)
     love.graphics.setLineWidth(3)
     love.graphics.setColor(1, 0.25, 0.15, 0.4 + 0.4 * pulse)
@@ -438,6 +558,89 @@ local function drawWinner()
     love.graphics.setFont(fontMedium)
 end
 
+local function drawSettings()
+    love.graphics.setColor(0, 0, 0, 0.65)
+    love.graphics.rectangle("fill", 0, 0, Config.SCREEN_WIDTH, Config.SCREEN_HEIGHT)
+
+    love.graphics.setColor(0.13, 0.12, 0.18, 0.98)
+    love.graphics.rectangle("fill", PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 14, 14)
+    love.graphics.setColor(1, 0.84, 0.35)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 14, 14)
+
+    love.graphics.setFont(fontBig)
+    love.graphics.setColor(1, 1, 1)
+    local title = "CONFIGURAÇÕES"
+    love.graphics.print(title, PANEL_X + PANEL_W / 2 - fontBig:getWidth(title) / 2, PANEL_Y + 22)
+
+    love.graphics.setFont(fontMedium)
+
+    -- sliders
+    for _, s in ipairs(SLIDER_DEFS) do
+        love.graphics.setColor(0.75, 0.75, 0.8)
+        love.graphics.print(s.label, 130, s.y - 22)
+
+        local val = Settings.get(s.key)
+
+        love.graphics.setColor(0.3, 0.28, 0.38)
+        love.graphics.rectangle("fill", TRACK_X0, s.y, TRACK_X1 - TRACK_X0, 10, 5, 5)
+
+        local filledW = (TRACK_X1 - TRACK_X0) * val
+        love.graphics.setColor(0.35, 0.65, 1)
+        love.graphics.rectangle("fill", TRACK_X0, s.y, filledW, 10, 5, 5)
+
+        local knobX = TRACK_X0 + (TRACK_X1 - TRACK_X0) * val
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.circle("fill", knobX, s.y + 5, 9)
+        love.graphics.setColor(0.2, 0.35, 0.6)
+        love.graphics.circle("line", knobX, s.y + 5, 9)
+
+        love.graphics.setFont(fontSmall)
+        local pct = string.format("%d%%", math.floor(val * 100))
+        love.graphics.setColor(0.6, 0.6, 0.7)
+        love.graphics.print(pct, TRACK_X1 + 12, s.y)
+        love.graphics.setFont(fontMedium)
+    end
+
+    -- toggles
+    for _, t in ipairs(TOGGLE_DEFS) do
+        love.graphics.setColor(0.75, 0.75, 0.8)
+        love.graphics.print(t.label, 130, t.y - 8)
+
+        local on = Settings.get(t.key)
+        local boxY = t.y - 14
+        if on then
+            love.graphics.setColor(0.2, 0.75, 0.35)
+        else
+            love.graphics.setColor(0.35, 0.35, 0.42)
+        end
+        love.graphics.rectangle("fill", TOGGLE_BOX_X, boxY, TOGGLE_BOX_W, 24, 12, 12)
+
+        local knobX = on and (TOGGLE_BOX_X + TOGGLE_BOX_W - 20) or TOGGLE_BOX_X
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.circle("fill", knobX + 10, boxY + 12, 9)
+        love.graphics.setColor(0, 0, 0, 0.25)
+        love.graphics.circle("line", knobX + 10, boxY + 12, 9)
+    end
+
+    -- botão fechar
+    local mx, my = View.toVirtual(love.mouse.getPosition())
+    local hover = insideRect(mx, my, CLOSE_RECT)
+
+    love.graphics.setColor(0, 0, 0, 0.4)
+    love.graphics.rectangle("fill", CLOSE_RECT.x + 2, CLOSE_RECT.y + 3, CLOSE_RECT.w, CLOSE_RECT.h, 12, 12)
+    love.graphics.setColor(hover and 0.26 or 0.16, hover and 0.32 or 0.20, hover and 0.46 or 0.30)
+    love.graphics.rectangle("fill", CLOSE_RECT.x, CLOSE_RECT.y, CLOSE_RECT.w, CLOSE_RECT.h, 12, 12)
+    love.graphics.setColor(0.62, 0.70, 0.9, hover and 0.9 or 0.45)
+    love.graphics.rectangle("line", CLOSE_RECT.x, CLOSE_RECT.y, CLOSE_RECT.w, CLOSE_RECT.h, 12, 12)
+
+    love.graphics.setColor(1, 1, 1)
+    local label = "Fechar"
+    love.graphics.print(label,
+        CLOSE_RECT.x + CLOSE_RECT.w / 2 - fontMedium:getWidth(label) / 2,
+        CLOSE_RECT.y + CLOSE_RECT.h / 2 - fontMedium:getHeight() / 2)
+end
+
 local function drawPlaying()
     -- hover só quando o jogador pode interagir
     local hoverRow, hoverCol = nil, nil
@@ -476,6 +679,9 @@ function Game.draw()
         drawPlaying()
     end
     UI.draw()
+    if settingsOpen then
+        drawSettings()
+    end
     View.release()
 end
 

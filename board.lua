@@ -153,14 +153,16 @@ function Board:movePiece(oldRow, oldCol, newRow, newCol)
 				isKing = captured.isKing,
 				alpha = 1,
 			})
-			self:addShake(6)
+			if ShakeEnabled then
+				self:addShake(6)
+			end
 		end
 		self.board[midRow][midCol] = 0
 	end
 
 	if (peca.player == 1 and newRow == ROWS) or (peca.player == 2 and newRow == 1) then
 		peca:promote()
-		if self.real then
+		if self.real and ShakeEnabled then
 			self:addShake(3)
 		end
 	end
