@@ -64,17 +64,8 @@ function Game.load()
     CaptureSound = love.audio.newSource("assets/sound_board_jump_asset.wav", "static")
 
     -- música de fundo (opcional: coloque assets/music.ogg|wav|mp3)
-    Music = nil
-    for _, file in ipairs({ "assets/music.ogg", "assets/music.wav", "assets/music.mp3" }) do
-        if love.filesystem.getInfo(file) then
-            local ok, src = pcall(love.audio.newSource, file, "stream")
-            if ok then
-                Music = src
-                Music:setLooping(true)
-                break
-            end
-        end
-    end
+    Music = love.audio.newSource("assets/bg_awesomeness.wav", "stream")
+    Music:setLooping(true)
 
     Settings.load()
     Game.applySettings()
