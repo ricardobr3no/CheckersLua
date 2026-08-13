@@ -20,6 +20,12 @@ local validMoves        = {}
 local mandatoryPieces   = {}
 local multiCapturePiece = nil
 
+local moveHistory        = {}
+local pendingMove        = nil
+local historyScroll      = 0
+local historyFollow      = true
+local historyDrag        = nil
+
 local settingsOpen      = false
 local settingsSlider    = nil
 
@@ -44,6 +50,14 @@ local TOGGLE_DEFS = {
     { key = "hints", label = "Mostrar dicas",   y = 385 },
 }
 local CLOSE_RECT = { x = 255, y = 435, w = 140, h = 46 }
+
+-- ─── Layout do histórico de jogadas ─────────────────────────────────────────────
+local HIST_X, HIST_TOP   = 548, 398
+local HIST_BOTTOM        = Config.SCREEN_HEIGHT - 6
+local HIST_LINE_H        = 16
+local HIST_TRACK_X       = Config.SCREEN_WIDTH - 10
+local HIST_TRACK_W       = 6
+local HIST_WHEEL_STEP    = 24
 
 -- ─── Setup ────────────────────────────────────────────────────────────────────
 function Game.load()
@@ -171,6 +185,11 @@ function Game.startPlaying(mode)
     validMoves        = {}
     mandatoryPieces   = {}
     multiCapturePiece = nil
+    moveHistory       = {}
+    pendingMove       = nil
+    historyScroll     = 0
+    historyFollow     = true
+    historyDrag       = nil
     aiDelay           = 0
     aiThinking        = false
     Board:restart()
@@ -197,6 +216,105 @@ local function endTurn()
     mandatoryPieces   = {}
     Board:changeTurn()
     winner = Board:checkWinner()
+end
+
+-- ─── Histórico de jogadas (notação algébrica) ──────────────────────────────────
+local function squareName(row, col)
+    return string.char(string.byte("a") + col - 1) .. row
+end
+
+local function recordMove(piece, toRow, toCol, isCapture)
+    if not pendingMove then
+        pendingMove = {
+            squares = { piece.row, piece.col },
+            wasKing = piece.isKing,
+            captures = {},
+        }
+    end
+    table.insert(pendingMove.squares, toRow)
+    table.insert(pendingMove.squares, toCol)
+    if isCapture then
+        table.insert(pendingMove.captures, true)
+    end
+end
+
+local function commitMove()
+    if not pendingMove then return end
+    local s = pendingMove.squares
+    local toRow, toCol = s[#s - 1], s[#s]
+    local dest = Board:getPiece(toRow, toCol)
+    local promoted = dest ~= 0 and dest.isKing and not pendingMove.wasKing
+
+    local notation
+    if #pendingMove.captures > 0 then
+        local parts = {}
+        for i = 1, #s, 2 do
+            parts[#parts + 1] = squareName(s[i], s[i + 1])
+        end
+        notation = table.concat(parts, "x")
+    else
+        notation = squareName(s[1], s[2]) .. "-" .. squareName(toRow, toCol)
+    end
+    if promoted then
+        notation = notation .. "=D"
+    end
+
+    table.insert(moveHistory, notation)
+    pendingMove = nil
+    historyFollow = true
+end
+
+local function wrapLine(text, maxW)
+    if fontSmall:getWidth(text) <= maxW then return { text } end
+    local out, cur = {}, ""
+    for i = 1, #text do
+        local c = text:sub(i, i)
+        if fontSmall:getWidth(cur .. c) > maxW then
+            out[#out + 1] = cur
+            cur = c
+        else
+            cur = cur .. c
+        end
+    end
+    if #cur > 0 then out[#out + 1] = cur end
+    return out
+end
+
+local function historyLines()
+    local lines = {}
+    local maxW = Config.SCREEN_WIDTH - 556
+    for i = 1, #moveHistory, 2 do
+        local p1 = moveHistory[i]
+        local p2 = moveHistory[i + 1]
+        local num = math.floor((i + 1) / 2) .. ". "
+        local line1 = num .. p1
+        local single = line1
+        if p2 then single = single .. " " .. p2 end
+
+        if p2 and fontSmall:getWidth(single) <= maxW then
+            lines[#lines + 1] = single
+        else
+            for _, l in ipairs(wrapLine(line1, maxW)) do lines[#lines + 1] = l end
+            if p2 then
+                for _, l in ipairs(wrapLine("   " .. p2, maxW)) do lines[#lines + 1] = l end
+            end
+        end
+    end
+    return lines
+end
+
+local function historyInfo()
+    local lines = historyLines()
+    local visH = HIST_BOTTOM - HIST_TOP
+    local contentH = #lines * HIST_LINE_H
+    local max = math.max(0, contentH - visH)
+    return lines, max, visH, contentH
+end
+
+local function historyThumb(max, visH, contentH)
+    local thumbH = math.max(20, visH * visH / contentH)
+    local thumbY = HIST_TOP + (visH - thumbH) * (historyScroll / max)
+    return HIST_TRACK_X, thumbY, HIST_TRACK_W, thumbH
 end
 
 local function handleSelection(row, col, peca)
@@ -231,7 +349,9 @@ end
 local function handleMove(x, y, button, row, col, moveFinal)
     if not selectedPiece then return end
     if moveFinal then
+        local piece = Board:getPiece(selectedPiece.row, selectedPiece.col)
         local captures = Board:movePiece(selectedPiece.row, selectedPiece.col, row, col)
+        recordMove(piece, row, col, captures)
 
         if captures and canStillCapture(row, col) then
             multiCapturePiece = { row = row, col = col }
@@ -239,6 +359,7 @@ local function handleMove(x, y, button, row, col, moveFinal)
             validMoves        = {}
             print("Capture novamente!")
         else
+            commitMove()
             endTurn()
         end
     elseif not multiCapturePiece then
@@ -259,6 +380,18 @@ function Game.mousepressed(x, y, button)
     UI.mousepressed(x, y, button)
 
     if gameState ~= "PLAYING" or winner then return end
+
+    if button == 1 then
+        local _, max, visH, contentH = historyInfo()
+        if max > 0 then
+            local tx, ty, tw, th = historyThumb(max, visH, contentH)
+            if insideRect(x, y, { x = tx, y = ty, w = tw, h = th }) then
+                historyDrag = y - ty
+                return
+            end
+        end
+    end
+
     if gameMode == Config.MODES.PVC and Board.currentPlayer == 2 then return end
     if button ~= 1 then return end
 
@@ -288,8 +421,11 @@ local function updateAI(dt)
 
     local bestMove = AI.getBestMove(Board, 3)
     if bestMove then
+        local piece = Board:getPiece(bestMove.startRow, bestMove.startCol)
         local captures = Board:movePiece(bestMove.startRow, bestMove.startCol, bestMove.endRow, bestMove.endCol)
+        recordMove(piece, bestMove.endRow, bestMove.endCol, captures)
         if not (captures and canStillCapture(bestMove.endRow, bestMove.endCol)) then
+            commitMove()
             Board:changeTurn()
             winner = Board:checkWinner()
         end
@@ -299,9 +435,35 @@ local function updateAI(dt)
     aiDelay = 0
 end
 
+function Game.wheelmoved(x, y)
+    if y == 0 or #moveHistory == 0 then return end
+    local _, max, visH, contentH = historyInfo()
+    if max <= 0 then return end
+
+    historyScroll = historyScroll - y * HIST_WHEEL_STEP
+    historyScroll = math.max(0, math.min(historyScroll, max))
+    historyFollow = historyScroll >= max
+end
+
 function Game.update(dt)
     UI.update(dt)
     Board:update(dt)
+
+    if historyDrag then
+        if love.mouse.isDown(1) then
+            local mx, my = View.toVirtual(love.mouse.getPosition())
+            local _, max, visH, contentH = historyInfo()
+            if max > 0 then
+                local thumbH = math.max(20, visH * visH / contentH)
+                local range = visH - thumbH
+                local t = math.max(0, math.min(1, (my - historyDrag - HIST_TOP) / range))
+                historyScroll = t * max
+                historyFollow = historyScroll >= max
+            end
+        else
+            historyDrag = nil
+        end
+    end
 
     if settingsOpen then
         if settingsSlider and love.mouse.isDown(1) then
@@ -340,7 +502,7 @@ local function drawDecorRow()
     -- fileira decorativa de quadrados de dama no fundo
     local size = 26
     local y = Config.SCREEN_HEIGHT - 52
-    for i = 0, 9 do
+    for i = 0, 13 do
         local x = 40 + i * (size + 18)
         love.graphics.setColor(0.62, 0.45, 0.28, 0.25)
         love.graphics.rectangle("fill", x, y, size, size)
@@ -405,6 +567,48 @@ local function drawCredits()
     local thanks = "Obrigado por jogar!"
     love.graphics.print(thanks, cx - fontSmall:getWidth(thanks) / 2, 372)
     love.graphics.setFont(fontMedium)
+end
+
+local function drawHistory()
+    if #moveHistory == 0 then return end
+
+    local lines, max, visH, contentH = historyInfo()
+
+    if historyFollow then
+        historyScroll = max
+    end
+    historyScroll = math.max(0, math.min(historyScroll, max))
+
+    local boxX, boxY = 544, HIST_TOP - 24
+    local boxW = Config.SCREEN_WIDTH - boxX - 4
+    local boxH = HIST_BOTTOM - boxY
+    love.graphics.setColor(0.15, 0.21, 0.28)
+    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6, 6)
+    love.graphics.setColor(0.35, 0.48, 0.62, 0.5)
+    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 6, 6)
+
+    love.graphics.setFont(fontSmall)
+    love.graphics.setColor(0.6, 0.6, 0.68)
+    love.graphics.print("Histórico", HIST_X, HIST_TOP - 18)
+
+    local y = HIST_TOP - historyScroll
+    for _, line in ipairs(lines) do
+        if y + HIST_LINE_H > HIST_BOTTOM then break end
+        if y >= HIST_TOP - HIST_LINE_H then
+            love.graphics.setColor(1, 1, 1, 0.92)
+            love.graphics.print(line, HIST_X, y)
+        end
+        y = y + HIST_LINE_H
+    end
+
+    -- scrollbar (só aparece quando o histórico extrapola)
+    if max > 0 then
+        local tx, ty, tw, th = historyThumb(max, visH, contentH)
+        love.graphics.setColor(0.3, 0.28, 0.38)
+        love.graphics.rectangle("fill", HIST_TRACK_X, HIST_TOP, HIST_TRACK_W, visH)
+        love.graphics.setColor(0.62, 0.60, 0.72)
+        love.graphics.rectangle("fill", tx, ty, tw, th)
+    end
 end
 
 local function drawTurnHud()
@@ -473,6 +677,7 @@ local function drawTurnHud()
     love.graphics.circle("fill", 550, p2y + 5, 8, 4, 4)
     rightText(p2y, "Branco: " .. c2, 1, 1, 1)
 
+    drawHistory()
     love.graphics.setFont(fontMedium)
 end
 

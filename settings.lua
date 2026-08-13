@@ -4,8 +4,8 @@ local Settings = {}
 local FILE = "settings.txt"
 
 local defaults = {
-    musicVolume = 0.6,
-    sfxVolume   = 0.8,
+    musicVolume = 0.1,
+    sfxVolume   = 0.5,
     shake       = true,
     hints       = true,
 }

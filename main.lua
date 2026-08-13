@@ -16,6 +16,10 @@ function love.mousepressed(x, y, button)
     Game.mousepressed(x, y, button)
 end
 
+function love.wheelmoved(x, y)
+    Game.wheelmoved(x, y)
+end
+
 function love.resize(w, h)
     Game.resize(w, h)
 end
