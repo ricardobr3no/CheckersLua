@@ -4,9 +4,9 @@
 -- Inclui scroll com barra arrastável e roda do mouse quando o histórico
 -- excede a altura do painel. A lista de linhas é cacheada (invalida-se
 -- quando uma jogada é gravada ou o histórico é reiniciado).
-local Config = require("config")
-local Board  = require("board")
-local View   = require("view")
+local Config = require("src.config")
+local Board  = require("src.board")
+local View   = require("src.view")
 
 local History = {}
 

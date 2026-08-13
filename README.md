@@ -84,16 +84,22 @@ A IA aguarda **1 segundo** antes de cada jogada para tornar a partida mais fluid
 ```
 CheckersLua/
 ├── main.lua       # Ponto de entrada do LÖVE (load / update / draw / input)
-├── game.lua       # Lógica central: estados, input, IA, renderização
-├── board.lua      # Tabuleiro: movimentos, capturas, promoção, vitória
-├── piece.lua      # Peça individual: direções, promoção, desenho
-├── ai.lua         # Inteligência artificial (Minimax)
-├── ui.lua         # Sistema de botões reutilizável
-├── config.lua     # Configurações globais (resolução, modos)
-└── assets/
-    ├── crown.png                    # Ícone de Dama
-    ├── sound_board_move_asset.wav   # Som de movimento
-    └── sound_board_jump_asset.wav   # Som de captura
+├── conf.lua       # Configuração da janela (título, dimensões)
+├── assets/
+│   ├── crown.png                    # Ícone de Dama
+│   ├── bg_awesomeness.wav           # Música de fundo
+│   ├── sound_board_move_asset.wav   # Som de movimento
+│   └── sound_board_jump_asset.wav   # Som de captura
+└── src/
+    ├── game.lua     # Lógica central: estados, input, IA, renderização
+    ├── board.lua    # Tabuleiro: movimentos, capturas, promoção, vitória
+    ├── piece.lua    # Peça individual: direções, promoção, desenho
+    ├── ai.lua       # Inteligência artificial (Minimax)
+    ├── ui.lua       # Sistema de botões reutilizável
+    ├── history.lua  # Histórico de jogadas (notação, scroll)
+    ├── settings.lua # Preferências do jogador (load/save em disco)
+    ├── view.lua     # Câmera virtual (escala centralizada)
+    └── config.lua   # Configurações globais (resolução, modos)
 ```
 
 ---

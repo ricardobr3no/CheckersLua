@@ -1,6 +1,6 @@
 -- Ponto de entrada do LÖVE: repassa os callbacks do framework para o Game.
 -- Todo o estado e a lógica ficam em game.lua; aqui só há a ponte.
-local Game = require("game")
+local Game = require("src.game")
 
 function love.load()              -- chamado uma vez no início
     Game.load()

@@ -1,8 +1,8 @@
 -- Tabuleiro de damas: regras, movimentação, captura, promoção e desenho.
 -- Observação: o módulo expõe globais (Board, ROWS, COLS, SQUARE_SIZE) por
 -- compatibilidade com o restante do código; todos os arquivos os usam.
-Config = require("config")
-Piece = require("piece")
+Config = require("src.config")
+Piece = require("src.piece")
 
 ROWS, COLS = 8, 8                  -- tabuleiro 8x8
 SQUARE_SIZE = Config.BOARD_SIZE / 8 -- tamanho da casa em pixels

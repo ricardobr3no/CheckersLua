@@ -1,14 +1,14 @@
 -- Núcleo do jogo: máquina de estados (menu/créditos/partida/configurações),
 -- fluxo de entrada do jogador, turnos, IA e todo o desenho da cena.
 -- Recebe os callbacks do LÖVE via main.lua.
-local Config            = require("config")
-local Board             = require("board")
-local Piece             = require("piece")
-local UI                = require("ui")
-local AI                = require("ai")
-local History           = require("history")
-local View              = require("view")
-local Settings          = require("settings")
+local Config            = require("src.config")
+local Board             = require("src.board")
+local Piece             = require("src.piece")
+local UI                = require("src.ui")
+local AI                = require("src.ai")
+local History           = require("src.history")
+local View              = require("src.view")
+local Settings          = require("src.settings")
 
 local Game              = {}
 

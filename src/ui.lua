@@ -28,7 +28,7 @@ end
 
 -- Atualiza o estado de hover de cada botão conforme a posição do mouse.
 function UI.update(dt)
-    local View = require("view")
+    local View = require("src.view")
     local mx, my = View.toVirtual(love.mouse.getPosition())
     for _, button in ipairs(UI.buttons) do
         button.isHovered = mx > button.x and mx < button.x + button.width and my > button.y and
