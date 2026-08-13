@@ -15,9 +15,10 @@ end
 function View.refresh()
     local screenW, screenH = love.graphics.getDimensions()
     if screenW <= 0 or screenH <= 0 then return end
+    -- usa a menor escala para manter a proporção (sem distorcer)
     scale = math.min(screenW / virtualW, screenH / virtualH)
-    offsetX = math.floor((screenW - virtualW * scale) / 2)
-    offsetY = math.floor((screenH - virtualH * scale) / 2)
+    offsetX = math.floor((screenW - virtualW * scale) / 2) -- centraliza horizontal
+    offsetY = math.floor((screenH - virtualH * scale) / 2) -- centraliza vertical
 end
 
 -- Chamado no love.resize (mantido para compatibilidade)
@@ -35,11 +36,13 @@ function View.getOffset()
     return offsetX, offsetY
 end
 
+-- Converte coordenadas da janela (pixels reais) para coordenadas virtuais.
 function View.toVirtual(x, y)
     View.refresh()
     return (x - offsetX) / scale, (y - offsetY) / scale
 end
 
+-- Aplica a transformação: todo desenho passa a usar coordenadas virtuais.
 function View.apply()
     View.refresh()
     love.graphics.push()
@@ -47,6 +50,7 @@ function View.apply()
     love.graphics.scale(scale)
 end
 
+-- Desfaz a transformação aplicada em View.apply.
 function View.release()
     love.graphics.pop()
 end

@@ -1,9 +1,14 @@
+-- IA do jogador 2 (branco) usando Minimax com poda alfa-beta.
+-- Para cada jogada possível simula as respostas do adversário até uma
+-- profundidade fixa e escolhe a jogada com melhor pontuação final.
 local AI = {}
 
--- Valores das peças
+-- Valores das peças para a função de avaliação
 local PIECE_VALUE = 10
 local KING_VALUE = 30
 
+-- Avalia uma posição do ponto de vista da IA (jogador 2 = positivo).
+-- Soma peças próprias e subtrai as do adversário (dama vale mais).
 function AI.evaluate(boardInstance)
     local score = 0
     for r = 1, 8 do
@@ -22,10 +27,14 @@ function AI.evaluate(boardInstance)
     return score
 end
 
+-- Retorna a melhor jogada para o jogador da vez no tabuleiro dado.
+-- Enumeram-se todos os movimentos legais (capturas obrigatórias primeiro) e
+-- cada um é avaliado pela minimax; retorna o movimento de maior pontuação.
 function AI.getBestMove(boardInstance, depth)
     local bestScore = -math.huge
     local bestMove = nil
 
+    -- coleta de todos os movimentos legais da posição atual
     local allMoves = {}
     local mandatory = boardInstance:getAllPossibleCaptures()
 
@@ -52,6 +61,7 @@ function AI.getBestMove(boardInstance, depth)
         end
     end
 
+    -- testa cada movimento numa cópia do tabuleiro e mantém o melhor
     for _, move in ipairs(allMoves) do
         local tempBoard = boardInstance:copy()
         tempBoard:movePiece(move.startRow, move.startCol, move.endRow, move.endCol)
@@ -67,12 +77,16 @@ function AI.getBestMove(boardInstance, depth)
     return bestMove
 end
 
+-- Minimax com poda alfa-beta. isMaximizing = true quando é a vez da IA
+-- (quer maximizar), false quando é a vez do jogador (quer minimizar).
 function AI.minimax(boardInstance, depth, alpha, beta, isMaximizing)
+    -- fim da busca: vitória com urgência (quanto antes melhor) ou aval. estática
     local winner = boardInstance:checkWinner()
     if winner == 2 then return 1000 + depth end
     if winner == 1 then return -1000 - depth end
     if depth == 0 then return AI.evaluate(boardInstance) end
 
+    -- gera os movimentos legais da posição atual
     local allMoves = {}
     local mandatory = boardInstance:getAllPossibleCaptures()
 
@@ -98,6 +112,7 @@ function AI.minimax(boardInstance, depth, alpha, beta, isMaximizing)
     end
 
     if isMaximizing then
+        -- nó de maximização: escolhe a melhor resposta para a IA
         local maxEval = -math.huge
         for _, move in ipairs(allMoves) do
             local tempBoard = boardInstance:copy()
@@ -106,10 +121,11 @@ function AI.minimax(boardInstance, depth, alpha, beta, isMaximizing)
             local eval = AI.minimax(tempBoard, depth - 1, alpha, beta, false)
             maxEval = math.max(maxEval, eval)
             alpha = math.max(alpha, eval)
-            if beta <= alpha then break end
+            if beta <= alpha then break end -- poda alfa
         end
         return maxEval
     else
+        -- nó de minimização: adversário fará a pior jogada para a IA
         local minEval = math.huge
         for _, move in ipairs(allMoves) do
             local tempBoard = boardInstance:copy()
@@ -118,7 +134,7 @@ function AI.minimax(boardInstance, depth, alpha, beta, isMaximizing)
             local eval = AI.minimax(tempBoard, depth - 1, alpha, beta, true)
             minEval = math.min(minEval, eval)
             beta = math.min(beta, eval)
-            if beta <= alpha then break end
+            if beta <= alpha then break end -- poda beta
         end
         return minEval
     end

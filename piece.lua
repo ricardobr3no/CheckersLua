@@ -1,12 +1,17 @@
+-- Representa uma peça de damas (pedra ou dama/coroada).
+-- Guarda posição lógica (row/col no tabuleiro 8x8), posição de desenho
+-- (displayX/Y, animada) e o estado de coroamento (isKing).
 local Piece = {}
 Piece.__index = Piece
 
 Piece.crownImage = nil
 
+-- Interpolação suave (amortecimento exponencial) usada na animação de movimento.
 local function damp(current, target, rate, dt)
     return current + (target - current) * (1 - math.exp(-rate * dt))
 end
 
+-- Carrega a imagem da coroa (opcional). Se faltar, desenha um anel decorativo.
 function Piece.loadAssets()
     local success, img = pcall(love.graphics.newImage, "assets/crown.png")
     if success then
@@ -18,27 +23,31 @@ end
 
 function Piece.new(player, row, col)
     local self = setmetatable({}, Piece)
-    self.player = player
-    self.row = row
-    self.col = col
-    self.isKing = false
-    self.scale = 1
-    self.alpha = 1
-    self.popT = nil
+    self.player = player     -- 1 = vermelho (jogador humano), 2 = branco
+    self.row = row           -- posição lógica (linha do tabuleiro)
+    self.col = col           -- posição lógica (coluna do tabuleiro)
+    self.isKing = false      -- true após ser promovida a dama
+    self.scale = 1           -- usado pela animação de promoção ("pop")
+    self.alpha = 1           -- transparência (útil p/ efeitos)
+    self.popT = nil          -- temporizador da animação de coroação
     self.displayX = (col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2
     self.displayY = (row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2
     return self
 end
 
+-- Cópia independente (usada pela IA ao simular jogadas no tabuleiro).
 function Piece:copy()
     local copy = Piece.new(self.player, self.row, self.col)
     copy.isKing = self.isKing
     return copy
 end
 
+-- Vetores de direção que a peça pode mover (vertical, horizontal).
+-- Jogador 1 (vermelho, base) anda para cima; jogador 2 anda para baixo;
+-- damas podem ir nas duas direções.
 function Piece:getDirections()
     local h = { 1, -1 }
-    local v = { self.player == 1 and 1 or -1 }
+    local v = { self.player == 1 and -1 or 1 }
 
     if self.isKing then
         v = { 1, -1 }
@@ -53,22 +62,26 @@ function Piece:getDirections()
     return dirs
 end
 
+-- Promove a peça a dama ao alcançar a última fileira inimiga.
 function Piece:promote()
     self.isKing = true
     self:pop()
     print("Peça promovida a Dama!")
 end
 
+-- Inicia a animação de "salto" ao coroar.
 function Piece:pop()
     self.popT = 0
 end
 
+-- Move a peça suavemente em direção à posição lógica e anima a coroação.
 function Piece:update(dt)
     local targetX = (self.col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2
     local targetY = (self.row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2
     self.displayX = damp(self.displayX, targetX, 10, dt)
     self.displayY = damp(self.displayY, targetY, 10, dt)
 
+    -- animação de promoção: escala oscila (cresce e volta) num "pop"
     if self.popT ~= nil then
         self.popT = math.min(1, self.popT + dt * 3.2)
         self.scale = 1 + 0.35 * math.sin(self.popT * math.pi)
@@ -79,8 +92,9 @@ function Piece:update(dt)
     end
 end
 
+-- Paleta de cores de cada jogador (sombras, corpo, brilho e faixas da dama).
 local function pieceColors(player)
-    if player == 1 then
+    if player == 1 then -- vermelho
         return {
             shadow = { 0, 0, 0 },
             rim    = { 0.42, 0.08, 0.06 },
@@ -89,7 +103,7 @@ local function pieceColors(player)
             shine  = { 1.0, 0.62, 0.55 },
             band   = { 0.55, 0.11, 0.09 },
         }
-    else
+    else -- branco
         return {
             shadow = { 0, 0, 0 },
             rim    = { 0.35, 0.33, 0.28 },
@@ -142,6 +156,8 @@ local function drawPieceBody(x, y, r, player, isKing, alpha, glow)
     love.graphics.circle("fill", x - r * 0.42, y - r * 0.22, r * 0.10)
 end
 
+-- Desenha a peça na posição (x, y). opts controla hover (destacada) e glow
+-- (peça selecionada). Se for dama, sobrepõe a coroa centralizada.
 function Piece:draw(x, y, squareSize, opts)
     opts = opts or {}
     local r = squareSize * 0.42 * self.scale

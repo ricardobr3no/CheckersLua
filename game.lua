@@ -1,65 +1,58 @@
+-- Núcleo do jogo: máquina de estados (menu/créditos/partida/configurações),
+-- fluxo de entrada do jogador, turnos, IA e todo o desenho da cena.
+-- Recebe os callbacks do LÖVE via main.lua.
 local Config            = require("config")
 local Board             = require("board")
 local Piece             = require("piece")
 local UI                = require("ui")
 local AI                = require("ai")
+local History           = require("history")
 local View              = require("view")
 local Settings          = require("settings")
 
 local Game              = {}
 
 -- ─── Estado interno ───────────────────────────────────────────────────────────
-local gameState         = "MENU"
-local gameMode          = nil
-local winner            = nil
-local aiDelay           = 0
-local aiThinking        = false
+local gameState         = "MENU"    -- MENU, CREDITS ou PLAYING
+local gameMode          = nil       -- Config.MODES.PVP ou PVC
+local winner            = nil       -- vencedor quando a partida termina
+local aiDelay           = 0         -- acumulador de tempo antes de a IA jogar
+local aiThinking        = false     -- true enquanto a IA está "pensando"
 
-local selectedPiece     = nil
-local validMoves        = {}
-local mandatoryPieces   = {}
-local multiCapturePiece = nil
+local selectedPiece     = nil       -- peça atualmente selecionada (row/col)
+local validMoves        = {}        -- destinos válidos da peça selecionada
+local mandatoryPieces   = {}        -- peças com captura obrigatória
+local multiCapturePiece = nil       -- peça que ainda precisa capturar de novo
 
-local moveHistory        = {}
-local pendingMove        = nil
-local historyScroll      = 0
-local historyFollow      = true
-local historyDrag        = nil
+local settingsOpen      = false     -- painel de configurações aberto?
+local settingsSlider    = nil       -- slider sendo arrastado (ou nil)
 
-local settingsOpen      = false
-local settingsSlider    = nil
-
+-- Fontes criadas no Game.load e usadas por todo o desenho.
 local fontTitle  = nil
 local fontBig    = nil
 local fontMedium = nil
 local fontSmall  = nil
 
+-- Origem do tabuleiro na tela (canto superior esquerdo).
 local OX = Config.BOARD_OFFSET_X
 local OY = Config.BOARD_OFFSET_Y
 
 -- ─── Layout do painel de configurações ────────────────────────────────────────
-local PANEL_X, PANEL_Y, PANEL_W, PANEL_H = 70, 60, 510, 460
-local TRACK_X0, TRACK_X1 = 320, 515
-local TOGGLE_BOX_X, TOGGLE_BOX_W = 470, 40
-local SLIDER_DEFS = {
+local PANEL_X, PANEL_Y, PANEL_W, PANEL_H = 70, 60, 510, 460 -- caixa do painel
+local TRACK_X0, TRACK_X1 = 320, 515                          -- trilho dos sliders
+local TOGGLE_BOX_X, TOGGLE_BOX_W = 470, 40                   -- caixa dos toggles
+local SLIDER_DEFS = {  -- sliders de volume: chave de Settings, rótulo e posição
     { key = "musicVolume", label = "Música de fundo", y = 180 },
     { key = "sfxVolume",   label = "Efeitos sonoros",  y = 245 },
 }
-local TOGGLE_DEFS = {
+local TOGGLE_DEFS = {  -- interruptores liga/desliga
     { key = "shake", label = "Tremor de tela", y = 330 },
     { key = "hints", label = "Mostrar dicas",   y = 385 },
 }
-local CLOSE_RECT = { x = 255, y = 435, w = 140, h = 46 }
-
--- ─── Layout do histórico de jogadas ─────────────────────────────────────────────
-local HIST_X, HIST_TOP   = 548, 398
-local HIST_BOTTOM        = Config.SCREEN_HEIGHT - 6
-local HIST_LINE_H        = 16
-local HIST_TRACK_X       = Config.SCREEN_WIDTH - 10
-local HIST_TRACK_W       = 6
-local HIST_WHEEL_STEP    = 24
+local CLOSE_RECT = { x = 255, y = 435, w = 140, h = 46 }     -- botão "Fechar"
 
 -- ─── Setup ────────────────────────────────────────────────────────────────────
+-- Inicialização única: janela, view virtual, fontes, sons e configurações.
 function Game.load()
     love.window.setTitle("CheckersLua")
     love.window.setMode(Config.SCREEN_WIDTH, Config.SCREEN_HEIGHT)
@@ -72,6 +65,7 @@ function Game.load()
     fontMedium = love.graphics.newFont(18)
     fontSmall  = love.graphics.newFont(13)
     love.graphics.setFont(fontMedium)
+    History.init(fontSmall) -- o histórico usa a fonte pequena
 
     Piece.loadAssets()
     MoveSound    = love.audio.newSource("assets/sound_board_move_asset.wav", "static")
@@ -86,6 +80,7 @@ function Game.load()
     Game.showMenu()
 end
 
+-- Aplica os volumes e efeitos salvos nas configurações.
 function Game.applySettings()
     local sfx = Settings.get("sfxVolume")
     MoveSound:setVolume(sfx)
@@ -99,6 +94,7 @@ function Game.applySettings()
     ShakeEnabled = Settings.get("shake")
 end
 
+-- Janela redimensionada: só precisa recalcular o view virtual.
 function Game.resize(w, h)
     View.resize(w, h)
 end
@@ -110,6 +106,7 @@ function Game.keypressed(key)
 end
 
 -- ─── Transições de estado ─────────────────────────────────────────────────────
+-- Menu principal: recria os botões centrais.
 function Game.showMenu()
     gameState = "MENU"
     UI.clear()
@@ -131,10 +128,12 @@ local function closeSettings()
     settingsSlider = nil
 end
 
+-- Testa se o ponto (x,y) está dentro de um retângulo {x,y,w,h}.
 local function insideRect(x, y, rect)
     return x >= rect.x and x <= rect.x + rect.w and y >= rect.y and y <= rect.y + rect.h
 end
 
+-- Converte a posição do mouse num valor 0..1 e aplica no slider.
 local function updateSlider(key, mx)
     local val = (mx - TRACK_X0) / (TRACK_X1 - TRACK_X0)
     val = math.max(0, math.min(1, val))
@@ -142,6 +141,7 @@ local function updateSlider(key, mx)
     Game.applySettings()
 end
 
+-- Trata cliques dentro do painel de configurações (fechar, toggles, sliders).
 local function settingsClick(x, y)
     if insideRect(x, y, CLOSE_RECT) then
         closeSettings()
@@ -160,16 +160,18 @@ local function settingsClick(x, y)
     for _, s in ipairs(SLIDER_DEFS) do
         if math.abs(y - s.y) < 16 and x >= TRACK_X0 - 6 and x <= TRACK_X1 + 6 then
             updateSlider(s.key, x)
-            settingsSlider = s.key
+            settingsSlider = s.key -- mantém arrastando enquanto o mouse estiver pressionado
             return
         end
     end
 
+    -- clique fora do painel fecha as configurações
     if not insideRect(x, y, { x = PANEL_X, y = PANEL_Y, w = PANEL_W, h = PANEL_H }) then
         closeSettings()
     end
 end
 
+-- Tela de créditos.
 function Game.showCredits()
     gameState = "CREDITS"
     UI.clear()
@@ -177,6 +179,7 @@ function Game.showCredits()
     UI.newButton("Voltar", cx - 110, 470, 220, 54, function() Game.showMenu() end)
 end
 
+-- Inicia uma partida: zera todo o estado e reinicia o tabuleiro.
 function Game.startPlaying(mode)
     gameState         = "PLAYING"
     gameMode          = mode
@@ -185,15 +188,12 @@ function Game.startPlaying(mode)
     validMoves        = {}
     mandatoryPieces   = {}
     multiCapturePiece = nil
-    moveHistory       = {}
-    pendingMove       = nil
-    historyScroll     = 0
-    historyFollow     = true
-    historyDrag       = nil
+    History.reset()
     aiDelay           = 0
     aiThinking        = false
     Board:restart()
 
+    -- botões do painel lateral durante a partida
     UI.clear()
     UI.newButton("Menu", 548, 18, 100, 40, function() Game.showMenu() end)
     UI.newButton("Reiniciar", 548, 70, 100, 40, function() Game.startPlaying(mode) end)
@@ -201,6 +201,7 @@ function Game.startPlaying(mode)
 end
 
 -- ─── Input ────────────────────────────────────────────────────────────────────
+-- A peça em (row,col) ainda pode fazer outra captura? (captura em cadeia)
 local function canStillCapture(row, col)
     local moves = Board:getValidMoves(row, col, true)
     for _, m in ipairs(moves) do
@@ -209,6 +210,7 @@ local function canStillCapture(row, col)
     return false
 end
 
+-- Encerra o turno: limpa a seleção, troca o jogador e confere o vencedor.
 local function endTurn()
     multiCapturePiece = nil
     selectedPiece     = nil
@@ -218,106 +220,10 @@ local function endTurn()
     winner = Board:checkWinner()
 end
 
--- ─── Histórico de jogadas (notação algébrica) ──────────────────────────────────
-local function squareName(row, col)
-    return string.char(string.byte("a") + col - 1) .. row
-end
-
-local function recordMove(piece, toRow, toCol, isCapture)
-    if not pendingMove then
-        pendingMove = {
-            squares = { piece.row, piece.col },
-            wasKing = piece.isKing,
-            captures = {},
-        }
-    end
-    table.insert(pendingMove.squares, toRow)
-    table.insert(pendingMove.squares, toCol)
-    if isCapture then
-        table.insert(pendingMove.captures, true)
-    end
-end
-
-local function commitMove()
-    if not pendingMove then return end
-    local s = pendingMove.squares
-    local toRow, toCol = s[#s - 1], s[#s]
-    local dest = Board:getPiece(toRow, toCol)
-    local promoted = dest ~= 0 and dest.isKing and not pendingMove.wasKing
-
-    local notation
-    if #pendingMove.captures > 0 then
-        local parts = {}
-        for i = 1, #s, 2 do
-            parts[#parts + 1] = squareName(s[i], s[i + 1])
-        end
-        notation = table.concat(parts, "x")
-    else
-        notation = squareName(s[1], s[2]) .. "-" .. squareName(toRow, toCol)
-    end
-    if promoted then
-        notation = notation .. "=D"
-    end
-
-    table.insert(moveHistory, notation)
-    pendingMove = nil
-    historyFollow = true
-end
-
-local function wrapLine(text, maxW)
-    if fontSmall:getWidth(text) <= maxW then return { text } end
-    local out, cur = {}, ""
-    for i = 1, #text do
-        local c = text:sub(i, i)
-        if fontSmall:getWidth(cur .. c) > maxW then
-            out[#out + 1] = cur
-            cur = c
-        else
-            cur = cur .. c
-        end
-    end
-    if #cur > 0 then out[#out + 1] = cur end
-    return out
-end
-
-local function historyLines()
-    local lines = {}
-    local maxW = Config.SCREEN_WIDTH - 556
-    for i = 1, #moveHistory, 2 do
-        local p1 = moveHistory[i]
-        local p2 = moveHistory[i + 1]
-        local num = math.floor((i + 1) / 2) .. ". "
-        local line1 = num .. p1
-        local single = line1
-        if p2 then single = single .. " " .. p2 end
-
-        if p2 and fontSmall:getWidth(single) <= maxW then
-            lines[#lines + 1] = single
-        else
-            for _, l in ipairs(wrapLine(line1, maxW)) do lines[#lines + 1] = l end
-            if p2 then
-                for _, l in ipairs(wrapLine("   " .. p2, maxW)) do lines[#lines + 1] = l end
-            end
-        end
-    end
-    return lines
-end
-
-local function historyInfo()
-    local lines = historyLines()
-    local visH = HIST_BOTTOM - HIST_TOP
-    local contentH = #lines * HIST_LINE_H
-    local max = math.max(0, contentH - visH)
-    return lines, max, visH, contentH
-end
-
-local function historyThumb(max, visH, contentH)
-    local thumbH = math.max(20, visH * visH / contentH)
-    local thumbY = HIST_TOP + (visH - thumbH) * (historyScroll / max)
-    return HIST_TRACK_X, thumbY, HIST_TRACK_W, thumbH
-end
-
+-- Seleciona uma peça e calcula seus movimentos válidos, respeitando:
+-- captura obrigatória, captura em cadeia e vez do jogador.
 local function handleSelection(row, col, peca)
+    -- em cadeia de captura, só a mesma peça pode ser escolhida
     if multiCapturePiece then
         if row == multiCapturePiece.row and col == multiCapturePiece.col then
             selectedPiece = { row = row, col = col }
@@ -330,8 +236,10 @@ local function handleSelection(row, col, peca)
 
     mandatoryPieces = Board:getAllPossibleCaptures()
 
+    -- casa vazia ou peça do adversário não seleciona
     if peca == 0 or peca.player ~= Board.currentPlayer then return end
 
+    -- se existe captura obrigatória, só peças que capturam podem ser escolhidas
     if #mandatoryPieces > 0 then
         local isMandatory = false
         for _, p in ipairs(mandatoryPieces) do
@@ -346,29 +254,34 @@ local function handleSelection(row, col, peca)
     validMoves    = Board:getValidMoves(row, col, #mandatoryPieces > 0)
 end
 
+-- Executa o movimento da peça selecionada para o destino clicado.
 local function handleMove(x, y, button, row, col, moveFinal)
     if not selectedPiece then return end
     if moveFinal then
         local piece = Board:getPiece(selectedPiece.row, selectedPiece.col)
         local captures = Board:movePiece(selectedPiece.row, selectedPiece.col, row, col)
-        recordMove(piece, row, col, captures)
+        History.record(piece, row, col, captures)
 
+        -- captura em cadeia: não troca o turno enquanto puder capturar de novo
         if captures and canStillCapture(row, col) then
             multiCapturePiece = { row = row, col = col }
             selectedPiece     = nil
             validMoves        = {}
             print("Capture novamente!")
         else
-            commitMove()
+            History.commit()
             endTurn()
         end
     elseif not multiCapturePiece then
+        -- clique numa casa sem movimento: desmarca e tenta nova seleção
         selectedPiece = nil
         validMoves    = {}
         Game.mousepressed(x, y, button)
     end
 end
 
+-- Trata cliques do mouse: painel de config, botões UI, scrollbar do
+-- histórico e, em jogo, seleção/movimentação de peças.
 function Game.mousepressed(x, y, button)
     x, y = View.toVirtual(x, y)
 
@@ -381,20 +294,14 @@ function Game.mousepressed(x, y, button)
 
     if gameState ~= "PLAYING" or winner then return end
 
-    if button == 1 then
-        local _, max, visH, contentH = historyInfo()
-        if max > 0 then
-            local tx, ty, tw, th = historyThumb(max, visH, contentH)
-            if insideRect(x, y, { x = tx, y = ty, w = tw, h = th }) then
-                historyDrag = y - ty
-                return
-            end
-        end
-    end
+    -- clique na scrollbar do histórico não interage com o tabuleiro
+    if History.mousepressed(x, y, button) then return end
 
+    -- em PVC, cliques não fazem nada durante o turno da IA
     if gameMode == Config.MODES.PVC and Board.currentPlayer == 2 then return end
     if button ~= 1 then return end
 
+    -- converte o clique em casa do tabuleiro (row/col)
     local col = math.floor((x - OX) / SQUARE_SIZE) + 1
     local row = math.floor((y - OY) / SQUARE_SIZE) + 1
     if row < 1 or row > ROWS or col < 1 or col > COLS then return end
@@ -404,6 +311,7 @@ function Game.mousepressed(x, y, button)
     if not selectedPiece then
         handleSelection(row, col, peca)
     else
+        -- o clique é um destino válido da peça selecionada?
         local moveFinal = nil
         for _, m in ipairs(validMoves) do
             if m.row == row and m.col == col then
@@ -415,17 +323,19 @@ function Game.mousepressed(x, y, button)
 end
 
 -- ─── Update ───────────────────────────────────────────────────────────────────
+-- Roda o turno da IA: espera um pequeno atraso, calcula a melhor jogada e
+-- executa (incluindo capturas em cadeia, que não trocam o turno).
 local function updateAI(dt)
     aiDelay = aiDelay + dt
-    if aiDelay <= 1.0 then return end
+    if aiDelay <= 1.0 then return end -- pausa de 1s antes de jogar
 
     local bestMove = AI.getBestMove(Board, 3)
     if bestMove then
         local piece = Board:getPiece(bestMove.startRow, bestMove.startCol)
         local captures = Board:movePiece(bestMove.startRow, bestMove.startCol, bestMove.endRow, bestMove.endCol)
-        recordMove(piece, bestMove.endRow, bestMove.endCol, captures)
+        History.record(piece, bestMove.endRow, bestMove.endCol, captures)
         if not (captures and canStillCapture(bestMove.endRow, bestMove.endCol)) then
-            commitMove()
+            History.commit()
             Board:changeTurn()
             winner = Board:checkWinner()
         end
@@ -435,36 +345,17 @@ local function updateAI(dt)
     aiDelay = 0
 end
 
+-- Roda do mouse repassada para a rolagem do histórico.
 function Game.wheelmoved(x, y)
-    if y == 0 or #moveHistory == 0 then return end
-    local _, max, visH, contentH = historyInfo()
-    if max <= 0 then return end
-
-    historyScroll = historyScroll - y * HIST_WHEEL_STEP
-    historyScroll = math.max(0, math.min(historyScroll, max))
-    historyFollow = historyScroll >= max
+    History.wheel(x, y)
 end
 
 function Game.update(dt)
     UI.update(dt)
     Board:update(dt)
+    History.update(dt)
 
-    if historyDrag then
-        if love.mouse.isDown(1) then
-            local mx, my = View.toVirtual(love.mouse.getPosition())
-            local _, max, visH, contentH = historyInfo()
-            if max > 0 then
-                local thumbH = math.max(20, visH * visH / contentH)
-                local range = visH - thumbH
-                local t = math.max(0, math.min(1, (my - historyDrag - HIST_TOP) / range))
-                historyScroll = t * max
-                historyFollow = historyScroll >= max
-            end
-        else
-            historyDrag = nil
-        end
-    end
-
+    -- arrastar slider do painel de configurações enquanto o mouse estiver preso
     if settingsOpen then
         if settingsSlider and love.mouse.isDown(1) then
             local mx = View.toVirtual(love.mouse.getPosition())
@@ -474,6 +365,7 @@ function Game.update(dt)
         end
     end
 
+    -- a IA "pensa" quando é a vez dela em PVC
     aiThinking = gameState == "PLAYING" and not winner
         and gameMode == Config.MODES.PVC and Board.currentPlayer == 2
 
@@ -483,11 +375,13 @@ function Game.update(dt)
 end
 
 -- ─── Helpers de desenho ───────────────────────────────────────────────────────
+-- Centro em pixels da casa (col,row) do tabuleiro.
 local function screenPos(col, row)
     return OX + (col - 1) * SQUARE_SIZE + SQUARE_SIZE / 2,
            OY + (row - 1) * SQUARE_SIZE + SQUARE_SIZE / 2
 end
 
+-- Fundo com gradiente vertical sutil (mais escuro embaixo).
 local function drawBackground()
     local w, h = Config.SCREEN_WIDTH, Config.SCREEN_HEIGHT
     local steps = 16
@@ -512,6 +406,7 @@ local function drawDecorRow()
     end
 end
 
+-- Menu principal: título com sombra e subtítulo.
 local function drawMenu()
     drawBackground()
     drawDecorRow()
@@ -520,9 +415,9 @@ local function drawMenu()
     love.graphics.setFont(fontTitle)
     love.graphics.setColor(0, 0, 0, 0.5)
     local title = "DAMAS LUA"
-    love.graphics.print(title, cx - fontTitle:getWidth(title) / 2 + 3, 53)
+    love.graphics.print(title, cx - fontTitle:getWidth(title) / 2 + 3, 53) -- sombra
     love.graphics.setColor(1, 0.84, 0.35)
-    love.graphics.print(title, cx - fontTitle:getWidth(title) / 2, 50)
+    love.graphics.print(title, cx - fontTitle:getWidth(title) / 2, 50)    -- texto
 
     love.graphics.setFont(fontSmall)
     love.graphics.setColor(0.55, 0.55, 0.6)
@@ -531,6 +426,7 @@ local function drawMenu()
     love.graphics.setFont(fontMedium)
 end
 
+-- Tela de créditos: tabela de informações + agradecimento.
 local function drawCredits()
     drawBackground()
     local cx = Config.SCREEN_WIDTH / 2
@@ -569,49 +465,10 @@ local function drawCredits()
     love.graphics.setFont(fontMedium)
 end
 
-local function drawHistory()
-    if #moveHistory == 0 then return end
-
-    local lines, max, visH, contentH = historyInfo()
-
-    if historyFollow then
-        historyScroll = max
-    end
-    historyScroll = math.max(0, math.min(historyScroll, max))
-
-    local boxX, boxY = 544, HIST_TOP - 24
-    local boxW = Config.SCREEN_WIDTH - boxX - 4
-    local boxH = HIST_BOTTOM - boxY
-    love.graphics.setColor(0.15, 0.21, 0.28)
-    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6, 6)
-    love.graphics.setColor(0.35, 0.48, 0.62, 0.5)
-    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 6, 6)
-
-    love.graphics.setFont(fontSmall)
-    love.graphics.setColor(0.6, 0.6, 0.68)
-    love.graphics.print("Histórico", HIST_X, HIST_TOP - 18)
-
-    local y = HIST_TOP - historyScroll
-    for _, line in ipairs(lines) do
-        if y + HIST_LINE_H > HIST_BOTTOM then break end
-        if y >= HIST_TOP - HIST_LINE_H then
-            love.graphics.setColor(1, 1, 1, 0.92)
-            love.graphics.print(line, HIST_X, y)
-        end
-        y = y + HIST_LINE_H
-    end
-
-    -- scrollbar (só aparece quando o histórico extrapola)
-    if max > 0 then
-        local tx, ty, tw, th = historyThumb(max, visH, contentH)
-        love.graphics.setColor(0.3, 0.28, 0.38)
-        love.graphics.rectangle("fill", HIST_TRACK_X, HIST_TOP, HIST_TRACK_W, visH)
-        love.graphics.setColor(0.62, 0.60, 0.72)
-        love.graphics.rectangle("fill", tx, ty, tw, th)
-    end
-end
-
+-- Painel lateral durante a partida: indicador de turno, contagem de peças
+-- e o histórico de jogadas.
 local function drawTurnHud()
+    -- fundo do painel + borda
     love.graphics.setColor(0.25, 0.22, 0.28)
     love.graphics.rectangle("fill", 542, 0, Config.SCREEN_WIDTH - 542, Config.SCREEN_HEIGHT)
 
@@ -620,7 +477,7 @@ local function drawTurnHud()
 
     local PANEL_RIGHT = Config.SCREEN_WIDTH - 6
 
-    -- contagem de peças
+    -- contagem de peças de cada jogador
     local c1, c2 = 0, 0
     for r = 1, ROWS do
         for c = 1, COLS do
@@ -631,7 +488,7 @@ local function drawTurnHud()
         end
     end
 
-    local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 5)
+    local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 5) -- animação de pulsar
     love.graphics.setFont(fontSmall)
 
     -- texto alinhado à direita do painel (nunca estoura a tela)
@@ -677,10 +534,12 @@ local function drawTurnHud()
     love.graphics.circle("fill", 550, p2y + 5, 8, 4, 4)
     rightText(p2y, "Branco: " .. c2, 1, 1, 1)
 
-    drawHistory()
+    History.draw()
     love.graphics.setFont(fontMedium)
 end
 
+-- Destaca a peça selecionada e os destinos válidos (círculos pulsantes).
+-- Capturas aparecem como anel vermelho; movimentos como ponto verde.
 local function drawSelection()
     if not selectedPiece then return end
 
@@ -707,6 +566,7 @@ local function drawSelection()
     end
 end
 
+-- Destaca com um anel as peças com captura obrigatória (quando as dicas estão ligadas).
 local function drawMandatory()
     if #mandatoryPieces == 0 or not Settings.get("hints") then return end
     local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 6)
@@ -718,6 +578,7 @@ local function drawMandatory()
     end
 end
 
+-- Sobreposição de fim de jogo: cartão com o vencedor e a mensagem.
 local function drawWinner()
     if not winner then return end
 
@@ -754,7 +615,9 @@ local function drawWinner()
     love.graphics.setFont(fontMedium)
 end
 
+-- Painel de configurações sobreposto à cena (escurece o fundo atrás).
 local function drawSettings()
+    -- máscara translúcida sobre o jogo
     love.graphics.setColor(0, 0, 0, 0.65)
     love.graphics.rectangle("fill", 0, 0, Config.SCREEN_WIDTH, Config.SCREEN_HEIGHT)
 
@@ -837,6 +700,7 @@ local function drawSettings()
         CLOSE_RECT.y + CLOSE_RECT.h / 2 - fontMedium:getHeight() / 2)
 end
 
+-- Cena de jogo: calcula o hover e desenha tabuleiro, painel e destaques.
 local function drawPlaying()
     -- hover só quando o jogador pode interagir
     local hoverRow, hoverCol = nil, nil
@@ -864,6 +728,7 @@ local function drawPlaying()
     drawWinner()
 end
 
+-- Desenha tudo conforme o estado atual, dentro do view virtual.
 function Game.draw()
     love.graphics.clear(0.02, 0.02, 0.04)
     View.apply()
@@ -874,9 +739,9 @@ function Game.draw()
     else
         drawPlaying()
     end
-    UI.draw()
+    UI.draw()          -- botões (menus, créditos e painel da partida)
     if settingsOpen then
-        drawSettings()
+        drawSettings() -- painel de configurações por cima de tudo
     end
     View.release()
 end

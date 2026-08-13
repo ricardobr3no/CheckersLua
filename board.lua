@@ -1,29 +1,35 @@
+-- Tabuleiro de damas: regras, movimentação, captura, promoção e desenho.
+-- Observação: o módulo expõe globais (Board, ROWS, COLS, SQUARE_SIZE) por
+-- compatibilidade com o restante do código; todos os arquivos os usam.
 Config = require("config")
 Piece = require("piece")
 
-ROWS, COLS = 8, 8
-SQUARE_SIZE = Config.BOARD_SIZE / 8
+ROWS, COLS = 8, 8                  -- tabuleiro 8x8
+SQUARE_SIZE = Config.BOARD_SIZE / 8 -- tamanho da casa em pixels
 
 local OX = Config.BOARD_OFFSET_X
 local OY = Config.BOARD_OFFSET_Y
 local FRAME = Config.BOARD_FRAME
 
+-- Monta o estado inicial: peças do jogador 1 (vermelho) na base (linhas 6-8)
+-- e do jogador 2 (branco) no topo (linhas 1-3), somente nas casas escuras.
 local function createBoard()
 	local board = {}
 	for row = 1, ROWS do
 		board[row] = {}
 		for col = 1, COLS do
-			board[row][col] = 0
+			board[row][col] = 0 -- 0 = casa vazia
 		end
 	end
 
 	for row = 1, ROWS do
 		for col = 1, COLS do
+			-- casas escuras são onde as peças ficam (soma ímpar)
 			if (row + col) % 2 == 1 then
 				if row <= 3 then
-					board[row][col] = Piece.new(1, row, col)
-				elseif row >= 6 then
 					board[row][col] = Piece.new(2, row, col)
+				elseif row >= 6 then
+					board[row][col] = Piece.new(1, row, col)
 				end
 			end
 		end
@@ -32,13 +38,15 @@ local function createBoard()
 end
 
 Board = {
-	board = createBoard(),
-	currentPlayer = 1,
-	real = true,
-	ghosts = {},
-	shake = 0,
+	board = createBoard(), -- matriz 8x8 de peças (0 = vazio)
+	currentPlayer = 1,     -- quem joga agora (1 = vermelho, 2 = branco)
+	real = true,           -- false para cópias usadas pela IA (sem som/efeitos)
+	ghosts = {},           -- "fantasmas" das peças capturadas (animação de sumiço)
+	shake = 0,             -- intensidade do tremor de tela restante
 }
 
+-- Cópia profunda do tabuleiro para simulação (IA). A cópia é "irreal":
+-- não toca sons nem dispara efeitos visuais.
 function Board:copy()
 	local newBoard = {
 		board = {},
@@ -120,6 +128,9 @@ function Board:addShake(amount)
 end
 
 -- ─── Regras ────────────────────────────────────────────────────────────────────
+-- Verifica se mover de (oldRow,oldCol) para (newRow,newCol) é uma captura:
+-- deve pular 2 casas na diagonal sobre uma peça inimiga com destino vazio.
+-- Retorna true + a posição da peça capturada (casa do meio).
 function Board:canCapture(oldRow, oldCol, newRow, newCol)
 	if math.abs(newRow - oldRow) == 2 and math.abs(newCol - oldCol) == 2 then
 		local midRow = (newRow + oldRow) / 2
@@ -134,14 +145,19 @@ function Board:canCapture(oldRow, oldCol, newRow, newCol)
 	return false
 end
 
+-- Executa o movimento. Se for captura, remove a peça do meio (gerando um
+-- "ghost" animado) e retorna true. Também promove a peça quando chega à
+-- última fileira e toca o som apropriado (só se for o tabuleiro real).
 function Board:movePiece(oldRow, oldCol, newRow, newCol)
 	local peca = self:getPiece(oldRow, oldCol)
 	local isCapture, midRow, midCol = self:canCapture(oldRow, oldCol, newRow, newCol)
 
+	-- desloca a peça para a nova casa
 	self.board[oldRow][oldCol] = 0
 	self.board[newRow][newCol] = peca
 	peca.row, peca.col = newRow, newCol
 
+	-- captura: remove a peça pulada e deixa um "ghost" que some aos poucos
 	if isCapture and midRow and midCol then
 		local captured = self:getPiece(midRow, midCol)
 		if self.real then
@@ -160,13 +176,15 @@ function Board:movePiece(oldRow, oldCol, newRow, newCol)
 		self.board[midRow][midCol] = 0
 	end
 
-	if (peca.player == 1 and newRow == ROWS) or (peca.player == 2 and newRow == 1) then
+	-- promoção: jogador 1 vira dama na linha 1; jogador 2 na linha 8
+	if (peca.player == 1 and newRow == 1) or (peca.player == 2 and newRow == ROWS) then
 		peca:promote()
 		if self.real and ShakeEnabled then
 			self:addShake(3)
 		end
 	end
 
+	-- som (somente no tabuleiro real)
 	if self.real then
 		if isCapture then
 			if CaptureSound then
@@ -186,6 +204,7 @@ function Board:movePiece(oldRow, oldCol, newRow, newCol)
 	return isCapture
 end
 
+-- Retorna a peça em (row,col) ou 0 se a casa estiver vazia.
 function Board:getPiece(row, col)
 	if self.board[row] then
 		return self.board[row][col]
@@ -193,6 +212,7 @@ function Board:getPiece(row, col)
 	return 0
 end
 
+-- Reinicia o tabuleiro para a posição inicial.
 function Board:restart()
 	self.board = createBoard()
 	self.currentPlayer = 1
@@ -248,6 +268,7 @@ function Board:drawPieces(opts)
 	end
 end
 
+-- Passa a vez ao outro jogador.
 function Board:changeTurn()
 	if self.currentPlayer == 1 then
 		self.currentPlayer = 2
@@ -259,6 +280,8 @@ function Board:changeTurn()
 	end
 end
 
+-- Lista todas as peças do jogador atual que têm captura disponível.
+-- Como a captura é obrigatória nas damas, a IA e a seleção usam isto.
 function Board:getAllPossibleCaptures()
 	local mandatoryPieces = {}
 
@@ -284,6 +307,9 @@ function Board:getAllPossibleCaptures()
 	return mandatoryPieces
 end
 
+-- Movimentos válidos da peça em (row,col).
+-- Capturas têm prioridade: se houver alguma, são as únicas retornadas
+-- (captura obrigatória). Se onlyCaptures for true, ignora movimentos simples.
 function Board:getValidMoves(row, col, onlyCaptures)
 	local piece = self:getPiece(row, col)
 	if piece == 0 then
@@ -295,6 +321,7 @@ function Board:getValidMoves(row, col, onlyCaptures)
 
 	local dirs = piece:getDirections()
 
+	-- salto de 2 casas = captura (se houver inimigo no meio e destino vazio)
 	for _, dir in ipairs(dirs) do
 		local r2, c2 = row + (dir[1] * 2), col + (dir[2] * 2)
 		if r2 >= 1 and r2 <= ROWS and c2 >= 1 and c2 <= COLS then
@@ -312,6 +339,7 @@ function Board:getValidMoves(row, col, onlyCaptures)
 		return {}
 	end
 
+	-- movimento simples de 1 casa na diagonal, para casa vazia
 	for _, dir in ipairs(dirs) do
 		local r1, c1 = row + dir[1], col + dir[2]
 		if r1 >= 1 and r1 <= ROWS and c1 >= 1 and c1 <= COLS then
@@ -324,6 +352,8 @@ function Board:getValidMoves(row, col, onlyCaptures)
 	return normalMoves
 end
 
+-- Verifica se o jogo terminou: o jogador atual perdeu todas as peças ou não
+-- tem mais nenhum movimento possível. Retorna o vencedor ou nil (continua).
 function Board:checkWinner()
 	local countCurrentPlayerPieces = 0
 	local currentPlayerHasMoves = false
@@ -341,6 +371,7 @@ function Board:checkWinner()
 		end
 	end
 
+	-- quem perdeu é o jogador da vez: então o outro vence
 	if countCurrentPlayerPieces == 0 or not currentPlayerHasMoves then
 		return self.currentPlayer == 1 and 2 or 1
 	end

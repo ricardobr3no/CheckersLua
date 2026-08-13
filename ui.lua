@@ -1,3 +1,6 @@
+-- Sistema simples de botões: retângulos arredondados com sombra, gradiente,
+-- destaque de hover e callback de clique. Os botões são recriados a cada
+-- mudança de tela via UI.clear() + UI.newButton(...).
 UI = {}
 UI.buttons = {}
 
@@ -5,23 +8,25 @@ local function drawRoundedRect(x, y, w, h, r)
     love.graphics.rectangle("fill", x, y, w, h, r, r)
 end
 
+-- Cria um botão e o adiciona à lista de botões ativos.
 function UI.newButton(label, x, y, width, height, onClick)
     local button = {
-        label = label,
-        x = x,
-        y = y,
-        width = width,
-        height = height,
-        isHovered = false,
-        onClick = onClick
+        label = label,      -- texto exibido
+        x = x, y = y,       -- posição (canto superior esquerdo)
+        width = width,      -- largura
+        height = height,    -- altura
+        isHovered = false,  -- atualizado a cada frame em UI.update
+        onClick = onClick   -- função chamada ao clicar
     }
     table.insert(UI.buttons, button)
 end
 
+-- Remove todos os botões (usado ao trocar de tela).
 function UI.clear()
     UI.buttons = {}
 end
 
+-- Atualiza o estado de hover de cada botão conforme a posição do mouse.
 function UI.update(dt)
     local View = require("view")
     local mx, my = View.toVirtual(love.mouse.getPosition())
@@ -31,6 +36,7 @@ function UI.update(dt)
     end
 end
 
+-- Desenha todos os botões ativos.
 function UI.draw()
     local font = love.graphics.getFont()
     local pressed = love.mouse.isDown(1)
@@ -41,7 +47,7 @@ function UI.draw()
         local isPressed = pressed and btn.isHovered
 
         if isPressed then
-            y = y + 2
+            y = y + 2 -- afunda o botão enquanto pressionado
         end
 
         -- sombra
@@ -75,6 +81,7 @@ function UI.draw()
     end
 end
 
+-- Dispara o callback do botão hoverado quando o botão esquerdo é clicado.
 function UI.mousepressed(x, y, button)
     if button == 1 then
         for _, btn in ipairs(UI.buttons) do
