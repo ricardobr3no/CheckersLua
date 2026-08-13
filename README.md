@@ -2,6 +2,8 @@
 
 Jogo de **Damas** desenvolvido em Lua com o framework **LÖVE 2D**, com suporte a partida entre dois jogadores ou contra uma inteligência artificial.
 
+![Screenshot do jogo](screenshots/screenshot.png)
+
 ---
 
 ## Requisitos
@@ -85,6 +87,8 @@ A IA aguarda **1 segundo** antes de cada jogada para tornar a partida mais fluid
 CheckersLua/
 ├── main.lua       # Ponto de entrada do LÖVE (load / update / draw / input)
 ├── conf.lua       # Configuração da janela (título, dimensões)
+├── screenshots/
+│   └── screenshot.png                # Captura de tela do jogo
 ├── assets/
 │   ├── crown.png                    # Ícone de Dama
 │   ├── bg_awesomeness.wav           # Música de fundo
